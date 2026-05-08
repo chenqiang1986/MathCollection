@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
-import agent, storage
+import agent_self_planning as agent
+import storage
 
 load_dotenv()
 
@@ -51,10 +52,13 @@ def create_app() -> Flask:
         saved_path = UPLOAD_DIR / safe_name
         saved_path.write_bytes(image_bytes)
 
+        with_solution = bool(request.form.get("with_solution"))
+
         try:
             result = agent.process_image(
                 image_path=saved_path,
                 source_image=safe_name,
+                with_solution=with_solution,
             )
         except Exception as e:
             flash(f"Agent error: {e}", "error")
