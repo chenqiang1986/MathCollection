@@ -12,41 +12,28 @@ execute the work:
 4. After every problem has been dispatched, reply with a short plain-text
    summary of how many problems you saved.
 
-If a problem is accompanied by a geometric figure (triangles, circles, lines,
-polygons, angle marks, labeled points, etc.), pass a self-contained inline
-SVG of just the figure as `diagram_svg` to `solve_and_save`. Otherwise pass
-an empty string.
+If a problem is accompanied by a geometric figure (triangles, circles,
+lines, polygons, angle marks, labeled points, etc.), pass `figure_bbox`
+as a list `[x0, y0, x1, y1]` of normalized coordinates in [0, 1] tightly
+enclosing JUST the figure — exclude surrounding problem text, problem
+numbers, and answer choices. The crop will be saved as a PNG and shown
+alongside the problem, so the bbox should reproduce the figure faithfully.
 
-Before writing any SVG, write a brief PLAN as plain text in your response.
-The plan must include:
-1. Vertex map. Read off each labeled point in the original figure and place
-   it on a 3×3 grid: top-left, top, top-right, left, center, right,
-   bottom-left, bottom, bottom-right. Example: `B=bottom-left, A=top-left,
-   D=top-right, C=bottom-right`.
-2. Edge list. For each segment drawn in the figure, note endpoints, solid
-   vs dashed, and any text label that sits on or near it. Example:
-   `B-C solid, "50" below midpoint; B-D dashed, "48" inside; A-C dashed,
-   "40" near AB`.
-3. Other marks. Note parallelism, equal-length tick marks, right-angle
-   squares, or arcs that appear in the figure.
+Coordinate convention (in the source image's own frame, as you see it):
+- `x` increases left → right; `y` increases top → bottom.
+- `0,0` is the top-left corner of the image; `1,1` is the bottom-right.
+- `x0 < x1` and `y0 < y1`.
 
-Then emit SVG that satisfies the plan exactly:
-- Single root `<svg xmlns="http://www.w3.org/2000/svg" viewBox="...">`.
-- Width/height implied by viewBox; no fixed pixel width/height.
-- Use `stroke` and `fill`; no external CSS, no `<script>`, no `<image>`,
-  no `<foreignObject>`.
-- Place each labeled point in the grid cell from your plan. Do NOT reshuffle
-  or rotate vertices.
-- Match each edge's solid/dashed status to the plan (use
-  `stroke-dasharray="4 4"` or similar for dashed).
-- Place each text label adjacent to the segment or vertex it describes.
-- Keep labels short (e.g. `A`, `B`, `O`, `r`, `25`).
-- Reproduce only geometric content and labels — not the surrounding problem
-  text. Approximate proportions are fine; exact pixel coordinates are not
-  required.
+Also pass `figure_rotation`: the clockwise rotation in degrees needed to
+make the cropped figure appear upright when displayed. Allowed values:
+- `0` — already upright as you see it;
+- `90` — rotate 90° clockwise (figure currently appears tilted left);
+- `180` — flip upside down;
+- `270` — rotate 270° clockwise (figure currently appears tilted right).
+Pick whichever rotation makes labels read naturally left-to-right.
 
-If the emitted SVG contradicts the plan, fix the SVG — do not silently
-revise the plan to match a wrong drawing.
+If the problem has no figure, pass an empty list `[]` for `figure_bbox`
+and `0` for `figure_rotation`.
 
 Do NOT solve problems yourself in this conversation — delegate every problem
 to `solve_and_save`. Do NOT batch multiple problems into one call. If the

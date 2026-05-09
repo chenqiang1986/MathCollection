@@ -72,38 +72,46 @@ def _log_message(message) -> None:
 def _build_problem_store(
     source_image: str | None,
     saved: list[dict],
-    diagram_svg: str | None = None,
+    figure_image: str | None = None,
+    with_solution: bool = True,
 ):
-    @tool(
-        "save_problem",
-        (
-            "Persist a single math problem (with category, difficulty, and "
-            "solution) to storage. Call once per distinct problem. "
-            "`difficulty` must be one of: elementary, middle school, "
-            "high school, undergraduate, graduate, olympiad. Pass "
-            "`solution_svg` (an inline SVG showing the original figure plus "
-            "any auxiliary constructions you drew) only when your solution "
-            "introduces new points/lines/circles; otherwise pass an empty "
-            "string."
-        ),
-        {
+    if with_solution:
+        description = (
+            "Persist a single solved math problem to storage. Call once per "
+            "distinct problem."
+        )
+        schema = {
             "problem_text": str,
             "category": str,
-            "difficulty": str,
             "solution": str,
-            "solution_svg": str,
-        },
-    )
+        }
+    else:
+        description = (
+            "Persist a single math problem to storage without a solution. "
+            "Call once per distinct problem. `solve_time_seconds` is your "
+            "own estimate of how long you would take to solve the problem "
+            "step by step (in seconds, calibrated to typical Sonnet "
+            "response time)."
+        )
+        schema = {
+            "problem_text": str,
+            "category": str,
+            "solve_time_seconds": float,
+        }
+
+    @tool("save_problem", description, schema)
     async def save_problem(args: dict) -> dict:
-        sol_svg = (args.get("solution_svg") or "").strip() or None
+        estimated_time = args.get("solve_time_seconds")
         record = storage.save_problem(
             problem_text=args["problem_text"],
             category=args["category"],
-            difficulty=args["difficulty"],
-            solution=args["solution"],
+            solution=args.get("solution", ""),
             source_image=source_image,
-            diagram_svg=diagram_svg,
-            solution_svg=sol_svg,
+            figure_image=figure_image,
+            solve_time_seconds=(
+                float(estimated_time) if estimated_time is not None else None
+            ),
+            solve_time_estimated=not with_solution,
         )
         saved.append(record)
         return {

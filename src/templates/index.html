@@ -11,7 +11,7 @@
 </head>
 <body>
   <h1>Math Collection</h1>
-  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.</p>
+  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one. <a href="{{ url_for('stats') }}">View stats →</a></p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -40,69 +40,48 @@
     </div>
   {% endif %}
 
-  <h2>All saved problems ({{ problems | length }})</h2>
+  <h2>All saved problems (<span id="total-count">…</span>)</h2>
 
-  {% if problems %}
-    <div class="filters">
-      <label>Category:
-        <select id="filter-category">
-          <option value="">All</option>
-          {% for c in problems | map(attribute='category') | map('lower') | unique | sort %}
-            <option value="{{ c }}">{{ c | title }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Difficulty:
-        <select id="filter-difficulty">
-          <option value="">All</option>
-          {% for d in problems | map(attribute='difficulty') | map('lower') | unique | sort %}
-            <option value="{{ d }}">{{ d | title }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <span id="filter-count" class="progress-text"></span>
-    </div>
-    <div class="filters">
-      <label>Print random
-        <input type="number" id="print-count" min="1" value="5">
-      </label>
-      <button type="button" id="print-btn">Print as PDF</button>
-      <span id="print-status" class="progress-text"></span>
-    </div>
-  {% endif %}
+  <div class="filters" id="filters" hidden>
+    <label>Category:
+      <select id="filter-category">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label class="range-label">Difficulty Measure:
+      <div class="range-slider" data-max="60">
+        <div class="range-track"></div>
+        <div class="range-fill"></div>
+        <input type="range" id="filter-time-min" min="0" max="60" step="1" value="0">
+        <input type="range" id="filter-time-max" min="0" max="60" step="1" value="60">
+      </div>
+      <span id="filter-time-display" class="range-display">0s – 60s</span>
+    </label>
+    <span id="filter-count" class="progress-text"></span>
+  </div>
+  <div class="filters" id="print-bar" hidden>
+    <label>Print random
+      <input type="number" id="print-count" min="1" value="5">
+    </label>
+    <button type="button" id="print-btn">Print as PDF</button>
+    <span id="print-status" class="progress-text"></span>
+  </div>
 
   <div id="print-header">
     <h2 style="margin:0">Math Problem Set</h2>
   </div>
 
   <div id="problem-list">
-    {% for p in problems | reverse %}
-      <div class="problem"
-           data-category="{{ p.category | lower }}"
-           data-difficulty="{{ p.difficulty | lower }}">
-        <h3>{{ p.category | title }} &middot; {{ p.difficulty }}</h3>
-        <div class="meta">
-          <span>{{ p.id[:8] }}</span>
-          <span>{{ p.created_at[:19].replace('T', ' ') }}</span>
-        </div>
-        <div class="rendered">{{ p.problem_text }}</div>
-        {% if p.diagram_svg %}
-          <div class="diagram">{{ p.diagram_svg | safe }}</div>
-        {% endif %}
-        {% if p.solution %}
-          <details>
-            <summary>Solution</summary>
-            <div class="rendered">{{ p.solution }}</div>
-            {% if p.solution_svg %}
-              <div class="diagram">{{ p.solution_svg | safe }}</div>
-            {% endif %}
-          </details>
-        {% endif %}
-      </div>
-    {% else %}
-      <p><em>No problems yet.</em></p>
-    {% endfor %}
+    <p id="empty-state"><em>Loading…</em></p>
   </div>
+
+  <div id="pagination" class="pagination" hidden>
+    <button type="button" id="page-prev">‹ Prev</button>
+    <span id="page-info"></span>
+    <button type="button" id="page-next">Next ›</button>
+  </div>
+
+  <div id="print-container" aria-hidden="true"></div>
 
 </body>
 </html>

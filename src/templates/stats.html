@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Math Collection — Stats</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script defer src="{{ url_for('static', filename='js/stats.js') }}"></script>
+</head>
+<body>
+  <h1>Stats</h1>
+  <p class="sub"><a href="{{ url_for('index') }}">← Back to collection</a></p>
+
+  <section class="chart-section">
+    <h2>Problems by category</h2>
+    <p class="chart-hint">Click a bar to see the difficulty breakdown for that category.</p>
+    <div id="chart-categories" class="bar-chart" aria-label="Problems by category"></div>
+  </section>
+
+  <section class="chart-section">
+    <h2 id="difficulty-title">Difficulty distribution</h2>
+    <div id="chart-difficulty" class="bar-chart" aria-label="Difficulty distribution"></div>
+  </section>
+</body>
+</html>
