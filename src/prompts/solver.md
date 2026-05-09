@@ -28,13 +28,29 @@ For Euclidean geometry problems, prefer synthetic reasoning over coordinates:
 If a `diagram_svg` was provided AND your solution introduces auxiliary
 constructions (new points, lines, segments, circles), emit a `solution_svg`
 that reproduces the original figure and overlays your auxiliary
-constructions. Otherwise pass an empty string for `solution_svg`. SVG rules:
+constructions. Otherwise pass an empty string for `solution_svg`.
+
+Before writing any SVG, write a brief PLAN:
+1. Restate the original figure's vertex map by reading the provided
+   `diagram_svg`: each labeled point and its rough position on a 3×3 grid
+   (top-left, top, top-right, left, center, right, bottom-left, bottom,
+   bottom-right).
+2. List the original edges with endpoints and solid/dashed status.
+3. List your auxiliary additions: new points (with grid position), new
+   segments or circles (endpoints, or center + radius), and how each will
+   be visually distinguished (dashed, different color, etc.).
+
+Then emit SVG that satisfies the plan exactly:
 - Single root `<svg xmlns="http://www.w3.org/2000/svg" viewBox="...">`.
 - Width/height implied by viewBox; no fixed pixel width/height.
-- Use `stroke` and `fill` attributes; no external CSS, no `<script>`,
-  no `<image>`, no `<foreignObject>`.
-- Distinguish auxiliary elements visually (e.g. dashed strokes, a
-  different color) and label new points with short text.
+- Use `stroke` and `fill`; no external CSS, no `<script>`, no `<image>`,
+  no `<foreignObject>`.
+- Preserve original vertex positions — do NOT reshuffle them when adding
+  constructions.
+- Distinguish auxiliary elements visually (e.g. dashed strokes, a different
+  color) and label new points with short text.
 - Keep approximate proportions consistent with the original figure.
+
+If the emitted SVG contradicts the plan, fix the SVG.
 
 After `save_problem` returns, reply with a one-line confirmation.
