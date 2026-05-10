@@ -34,9 +34,13 @@
     <div class="login-gate">
       <p>Please <a href="{{ url_for('login') }}">sign in with Google</a> to upload problems and view your collection.</p>
     </div>
+  {% elif not can_upload %}
+    <div class="login-gate">
+      <p>You're signed in as a guest. Uploads are disabled for your account, but you can browse the shared guest collection below.</p>
+    </div>
   {% endif %}
 
-  <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in %}style="display:none"{% endif %}>
+  <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in or not can_upload %}style="display:none"{% endif %}>
     <label>Image (PNG, JPEG, GIF, WebP, max 10 MB):</label><br>
     <input type="file" name="image" accept="image/*" required>
     <label style="display:block; margin-top:0.5rem;">

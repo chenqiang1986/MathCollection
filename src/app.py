@@ -29,6 +29,9 @@ DEFAULT_PAGE_SIZE = 5
 MAX_PAGE_SIZE = 50
 MAX_SAMPLE_SIZE = 200
 
+UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com"}
+GUEST_USER = "guest"
+
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
@@ -59,6 +62,14 @@ def _current_user() -> dict | None:
     return session.get("user")
 
 
+def _is_whitelisted(email: str | None) -> bool:
+    return bool(email) and email.strip().lower() in UPLOAD_WHITELIST
+
+
+def _storage_email(email: str | None) -> str:
+    return email if _is_whitelisted(email) else GUEST_USER
+
+
 def login_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
@@ -67,12 +78,25 @@ def login_required(view):
             if request.method == "GET" and request.accept_mimetypes.accept_html:
                 return redirect(url_for("login", next=request.path))
             return jsonify({"error": "login required"}), 401
-        token = storage.set_current_user(user["email"])
+        token = storage.set_current_user(_storage_email(user["email"]))
         try:
             storage.init_index()
             return view(*args, **kwargs)
         finally:
             storage.reset_current_user(token)
+    return wrapper
+
+
+def upload_allowed_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        user = _current_user()
+        if not user or not _is_whitelisted(user.get("email")):
+            if request.method == "GET" and request.accept_mimetypes.accept_html:
+                flash("Your account is not allowed to upload.", "error")
+                return redirect(url_for("index"))
+            return jsonify({"error": "upload not permitted for this account"}), 403
+        return view(*args, **kwargs)
     return wrapper
 
 
@@ -100,7 +124,11 @@ def create_app() -> Flask:
 
     @app.context_processor
     def inject_user():
-        return {"current_user": _current_user()}
+        user = _current_user()
+        return {
+            "current_user": user,
+            "can_upload": _is_whitelisted((user or {}).get("email")),
+        }
 
     @app.route("/login", methods=["GET"])
     def login():
@@ -141,7 +169,7 @@ def create_app() -> Flask:
         user = _current_user()
         if not user:
             return render_template("index.html", result=None, logged_in=False)
-        token = storage.set_current_user(user["email"])
+        token = storage.set_current_user(_storage_email(user["email"]))
         try:
             storage.init_index()
             return render_template("index.html", result=None, logged_in=True)
@@ -171,6 +199,7 @@ def create_app() -> Flask:
 
     @app.route("/upload", methods=["POST"])
     @login_required
+    @upload_allowed_required
     def upload():
         file = request.files.get("image")
         if not file or not file.filename:
@@ -244,6 +273,7 @@ def create_app() -> Flask:
 
     @app.route("/api/problems/<problem_id>", methods=["DELETE"])
     @login_required
+    @upload_allowed_required
     def api_delete_problem(problem_id):
         deleted = storage.delete_problem(problem_id)
         if not deleted:
