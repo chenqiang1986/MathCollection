@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Math Collection</title>
+  <title>Problems Lens AI</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
@@ -21,7 +21,7 @@
       <a href="{{ url_for('login') }}" class="user-action primary">Sign in with Google</a>
     {% endif %}
   </div>
-  <h1>Math Collection</h1>
+  <h1>Problems Lens AI</h1>
   <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.{% if logged_in %} <a href="{{ url_for('stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
