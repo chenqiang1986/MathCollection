@@ -1,4 +1,12 @@
 body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #222; }
+.user-bar { display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; font-size: 0.9rem; margin-bottom: 0.5rem; }
+.user-bar .user-info { color: #555; display: inline-flex; align-items: center; gap: 0.4rem; }
+.user-bar .user-avatar { width: 22px; height: 22px; border-radius: 50%; }
+.user-bar .user-action { color: #06c; text-decoration: none; padding: 0.25rem 0.6rem; border-radius: 4px; border: 1px solid #cde; }
+.user-bar .user-action:hover { background: #eef5ff; }
+.user-bar .user-action.primary { background: #06c; color: #fff; border-color: #06c; }
+.user-bar .user-action.primary:hover { background: #0050a0; }
+.login-gate { padding: 1rem; border: 1px solid #cde; background: #f3f8ff; border-radius: 6px; margin: 1rem 0; }
 h1 { margin-bottom: 0.25rem; }
 .sub { color: #666; margin-top: 0; }
 form { padding: 1rem; border: 2px dashed #bbb; border-radius: 8px; margin: 1rem 0; }

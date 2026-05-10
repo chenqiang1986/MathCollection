@@ -1,4 +1,6 @@
+import contextvars
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -8,22 +10,69 @@ from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
-PROBLEMS_DIR = DATA_DIR / "problems"
-FIGURES_DIR = DATA_DIR / "figures"
 UPLOADS_DIR = REPO_ROOT / "uploads"
-INDEX_PATH = DATA_DIR / "problems_index.db"
 
 FIGURE_PADDING = 0.015  # 1.5% margin on each side of the model's bbox
 
+_CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("current_user")
+
+_EMAIL_SAFE_RE = re.compile(r"[^a-z0-9@._\-+]")
+
+
+def sanitize_email(email: str) -> str:
+    """Lowercase and replace filesystem-unsafe characters."""
+    if not email:
+        raise ValueError("email is required")
+    safe = _EMAIL_SAFE_RE.sub("_", email.strip().lower())
+    if not safe:
+        raise ValueError(f"email sanitizes to empty string: {email!r}")
+    return safe
+
+
+def set_current_user(email: str) -> contextvars.Token:
+    """Bind the current user for subsequent storage calls in this context."""
+    return _CURRENT_USER.set(sanitize_email(email))
+
+
+def reset_current_user(token: contextvars.Token) -> None:
+    _CURRENT_USER.reset(token)
+
+
+def _user_slug() -> str:
+    try:
+        return _CURRENT_USER.get()
+    except LookupError as e:
+        raise RuntimeError(
+            "storage called without an active user; call set_current_user first"
+        ) from e
+
+
+def user_dir() -> Path:
+    return DATA_DIR / _user_slug()
+
+
+def problems_dir() -> Path:
+    return user_dir() / "problems"
+
+
+def figures_dir() -> Path:
+    return user_dir() / "figures"
+
+
+def index_path() -> Path:
+    return user_dir() / "problems_index.db"
+
 
 def _connect() -> sqlite3.Connection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(INDEX_PATH)
+    user_dir().mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(index_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_index() -> None:
+    """Create tables and backfill from problems/*.json for the current user."""
+    pdir = problems_dir()
     with _connect() as conn:
         conn.execute(
             """
@@ -41,8 +90,8 @@ def init_index() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON problems(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_solve_time ON problems(solve_time_seconds)")
         count = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
-        if count == 0 and PROBLEMS_DIR.exists():
-            for p in sorted(PROBLEMS_DIR.glob("*.json")):
+        if count == 0 and pdir.exists():
+            for p in sorted(pdir.glob("*.json")):
                 try:
                     rec = json.loads(p.read_text())
                 except json.JSONDecodeError:
@@ -88,7 +137,7 @@ def save_figure(
 ) -> str:
     """Crop a normalized [x0,y0,x1,y1] region from uploads/<source_image>,
     optionally rotate clockwise by `rotation` (one of 0/90/180/270), and
-    save as a PNG under data/figures/. Returns the saved filename.
+    save as a PNG under data/<user>/figures/. Returns the saved filename.
 
     `bbox` values are in [0,1] in the source image's frame; a small
     padding is added before clipping.
@@ -114,7 +163,8 @@ def save_figure(
     if not src_path.exists():
         raise FileNotFoundError(f"source image not found: {src_path}")
 
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    fdir = figures_dir()
+    fdir.mkdir(parents=True, exist_ok=True)
     with Image.open(src_path) as im:
         im = im.convert("RGB")
         w, h = im.size
@@ -133,12 +183,12 @@ def save_figure(
         cropped = cropped.transpose(transpose_op)
 
     filename = f"{uuid.uuid4()}.png"
-    cropped.save(FIGURES_DIR / filename, "PNG")
+    cropped.save(fdir / filename, "PNG")
     return filename
 
 
 def figure_path(filename: str) -> Path:
-    return FIGURES_DIR / filename
+    return figures_dir() / filename
 
 
 def save_problem(
@@ -150,7 +200,8 @@ def save_problem(
     solve_time_seconds: float | None = None,
     solve_time_estimated: bool = False,
 ) -> dict:
-    PROBLEMS_DIR.mkdir(parents=True, exist_ok=True)
+    pdir = problems_dir()
+    pdir.mkdir(parents=True, exist_ok=True)
     problem_id = str(uuid.uuid4())
     record = {
         "id": problem_id,
@@ -163,7 +214,7 @@ def save_problem(
         "source_image": source_image,
         "figure_image": figure_image or None,
     }
-    path = PROBLEMS_DIR / f"{problem_id}.json"
+    path = pdir / f"{problem_id}.json"
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
     with _connect() as conn:
         _upsert_index_row(conn, record)
@@ -171,7 +222,7 @@ def save_problem(
 
 
 def update_problem(problem_id: str, **fields) -> dict:
-    path = PROBLEMS_DIR / f"{problem_id}.json"
+    path = problems_dir() / f"{problem_id}.json"
     record = json.loads(path.read_text())
     record.update(fields)
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
@@ -181,7 +232,7 @@ def update_problem(problem_id: str, **fields) -> dict:
 
 
 def delete_problem(problem_id: str) -> bool:
-    path = PROBLEMS_DIR / f"{problem_id}.json"
+    path = problems_dir() / f"{problem_id}.json"
     record = None
     if path.exists():
         try:
@@ -191,7 +242,7 @@ def delete_problem(problem_id: str) -> bool:
         path.unlink()
     figure = (record or {}).get("figure_image") if record else None
     if figure:
-        fpath = FIGURES_DIR / figure
+        fpath = figures_dir() / figure
         if fpath.exists():
             fpath.unlink()
     with _connect() as conn:
@@ -201,7 +252,7 @@ def delete_problem(problem_id: str) -> bool:
 
 
 def get_problem(problem_id: str) -> dict | None:
-    path = PROBLEMS_DIR / f"{problem_id}.json"
+    path = problems_dir() / f"{problem_id}.json"
     if not path.exists():
         return None
     try:
@@ -211,10 +262,11 @@ def get_problem(problem_id: str) -> dict | None:
 
 
 def list_problems() -> list[dict]:
-    if not PROBLEMS_DIR.exists():
+    pdir = problems_dir()
+    if not pdir.exists():
         return []
     out = []
-    for p in sorted(PROBLEMS_DIR.glob("*.json")):
+    for p in sorted(pdir.glob("*.json")):
         try:
             out.append(json.loads(p.read_text()))
         except json.JSONDecodeError:

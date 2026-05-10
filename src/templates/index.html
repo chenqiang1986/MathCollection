@@ -10,8 +10,19 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+  <div class="user-bar">
+    {% if current_user %}
+      <span class="user-info">
+        {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar">{% endif %}
+        Signed in as <strong>{{ current_user.email }}</strong>
+      </span>
+      <a href="{{ url_for('logout') }}" class="user-action">Sign out</a>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="user-action primary">Sign in with Google</a>
+    {% endif %}
+  </div>
   <h1>Math Collection</h1>
-  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one. <a href="{{ url_for('stats') }}">View stats →</a></p>
+  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.{% if logged_in %} <a href="{{ url_for('stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -19,7 +30,13 @@
     {% endfor %}
   {% endwith %}
 
-  <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+  {% if not logged_in %}
+    <div class="login-gate">
+      <p>Please <a href="{{ url_for('login') }}">sign in with Google</a> to upload problems and view your collection.</p>
+    </div>
+  {% endif %}
+
+  <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in %}style="display:none"{% endif %}>
     <label>Image (PNG, JPEG, GIF, WebP, max 10 MB):</label><br>
     <input type="file" name="image" accept="image/*" required>
     <label style="display:block; margin-top:0.5rem;">
@@ -40,6 +57,7 @@
     </div>
   {% endif %}
 
+  {% if logged_in %}
   <h2>All saved problems (<span id="total-count">…</span>)</h2>
 
   <div class="filters" id="filters" hidden>
@@ -82,6 +100,7 @@
   </div>
 
   <div id="print-container" aria-hidden="true"></div>
+  {% endif %}
 
 </body>
 </html>

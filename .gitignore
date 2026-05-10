@@ -4,4 +4,4 @@ __pycache__/
 .env
 uploads/*
 !uploads/.gitkeep
-data/problems/*.json
+data/*
