@@ -16,13 +16,13 @@
         {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar">{% endif %}
         Signed in as <strong>{{ current_user.email }}</strong>
       </span>
-      <a href="{{ url_for('logout') }}" class="user-action">Sign out</a>
+      <a href="{{ url_for('auth.logout') }}" class="user-action">Sign out</a>
     {% else %}
-      <a href="{{ url_for('login') }}" class="user-action primary">Sign in with Google</a>
+      <a href="{{ url_for('auth.login') }}" class="user-action primary">Sign in with Google</a>
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.{% if logged_in %} <a href="{{ url_for('stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -32,7 +32,7 @@
 
   {% if not logged_in %}
     <div class="login-gate">
-      <p>Please <a href="{{ url_for('login') }}">sign in with Google</a> to upload problems and view your collection.</p>
+      <p>Please <a href="{{ url_for('auth.login') }}">sign in with Google</a> to upload problems and view your collection.</p>
     </div>
   {% elif not can_upload %}
     <div class="login-gate">
@@ -40,7 +40,7 @@
     </div>
   {% endif %}
 
-  <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in or not can_upload %}style="display:none"{% endif %}>
+  <form id="upload-form" action="{{ url_for('uploads.upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in or not can_upload %}style="display:none"{% endif %}>
     <label>Image (PNG, JPEG, GIF, WebP, max 10 MB):</label><br>
     <input type="file" name="image" accept="image/*" required>
     <label style="display:block; margin-top:0.5rem;">

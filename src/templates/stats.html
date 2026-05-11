@@ -13,11 +13,11 @@
         {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar">{% endif %}
         Signed in as <strong>{{ current_user.email }}</strong>
       </span>
-      <a href="{{ url_for('logout') }}" class="user-action">Sign out</a>
+      <a href="{{ url_for('auth.logout') }}" class="user-action">Sign out</a>
     {% endif %}
   </div>
   <h1>Stats</h1>
-  <p class="sub"><a href="{{ url_for('index') }}">← Back to collection</a></p>
+  <p class="sub"><a href="{{ url_for('pages.index') }}">← Back to collection</a></p>
 
   <section class="chart-section">
     <h2>Problems by category</h2>

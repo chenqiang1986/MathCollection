@@ -4,7 +4,7 @@ import uuid
 
 from PIL import Image
 
-from storage import UPLOADS_DIR, figures_dir
+from lib.storage import UPLOADS_DIR, figures_dir
 
 FIGURE_PADDING = 0.015  # 1.5% margin on each side of the model's bbox
 

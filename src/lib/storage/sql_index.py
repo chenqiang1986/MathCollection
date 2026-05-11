@@ -1,0 +1,138 @@
+"""SQLite metadata index over the per-user problem JSON files."""
+
+import json
+import sqlite3
+
+from .paths import index_path, problems_dir, user_dir
+from .vocab import Problem
+
+
+def _connect() -> sqlite3.Connection:
+    user_dir().mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(index_path())
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_index() -> None:
+    """Create tables and backfill from problems/*.json for the current user."""
+    pdir = problems_dir()
+    with _connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS problems (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                category TEXT NOT NULL,
+                solve_time_seconds REAL,
+                solve_time_estimated INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_category ON problems(category)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON problems(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_solve_time ON problems(solve_time_seconds)")
+        count = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
+        if count == 0 and pdir.exists():
+            for p in sorted(pdir.glob("*.json")):
+                try:
+                    data = json.loads(p.read_text())
+                except json.JSONDecodeError:
+                    continue
+                _upsert_index_row(conn, Problem.from_dict(data))
+
+
+def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
+    conn.execute(
+        """
+        INSERT INTO problems
+            (id, filename, category, solve_time_seconds, solve_time_estimated, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            filename = excluded.filename,
+            category = excluded.category,
+            solve_time_seconds = excluded.solve_time_seconds,
+            solve_time_estimated = excluded.solve_time_estimated,
+            created_at = excluded.created_at
+        """,
+        (
+            problem.id,
+            f"{problem.id}.json",
+            (problem.category or "").lower(),
+            problem.solve_time_seconds,
+            1 if problem.solve_time_estimated else 0,
+            problem.created_at,
+        ),
+    )
+
+
+def _build_where(
+    category: str | None,
+    min_time: float | None,
+    max_time: float | None,
+    full_range_max: float | None = None,
+) -> tuple[str, list]:
+    """Build a WHERE clause. If min_time/max_time covers the full slider range,
+    do not exclude rows with NULL solve_time_seconds."""
+    where: list[str] = []
+    params: list = []
+    if category:
+        where.append("category = ?")
+        params.append(category.lower())
+    range_active = False
+    if min_time is not None and (full_range_max is None or min_time > 0):
+        range_active = True
+    if max_time is not None and (full_range_max is None or max_time < full_range_max):
+        range_active = True
+    if range_active:
+        if min_time is not None:
+            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds >= ?")
+            params.append(min_time)
+        if max_time is not None:
+            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds <= ?")
+            params.append(max_time)
+    if not where:
+        return "", params
+    return " WHERE " + " AND ".join(where), params
+
+
+def query_index(
+    category: str | None = None,
+    min_time: float | None = None,
+    max_time: float | None = None,
+    page: int = 1,
+    page_size: int = 5,
+    full_range_max: float | None = None,
+) -> tuple[int, list[str]]:
+    where_clause, params = _build_where(category, min_time, max_time, full_range_max)
+    page = max(1, int(page))
+    page_size = max(1, int(page_size))
+    offset = (page - 1) * page_size
+    with _connect() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM problems{where_clause}", params
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id FROM problems{where_clause} "
+            f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, page_size, offset),
+        ).fetchall()
+    ids = [r["id"] for r in rows]
+    return total, ids
+
+
+def sample_index(
+    n: int,
+    category: str | None = None,
+    min_time: float | None = None,
+    max_time: float | None = None,
+    full_range_max: float | None = None,
+) -> list[str]:
+    where_clause, params = _build_where(category, min_time, max_time, full_range_max)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT ?",
+            (*params, max(1, int(n))),
+        ).fetchall()
+    return [r["id"] for r in rows]

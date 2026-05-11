@@ -1,44 +1,24 @@
-"""Alternative orchestration: a single top-level agent decides when to
-transcribe and when to fan out to a `solve_and_save` tool that spawns a
-fresh sub-agent per problem.
+"""Inner solver: classifies/solves a single problem in a fresh agent context,
+and the MCP `solve_and_save` tool that the orchestrator calls to spawn one."""
 
-This is a sketch — not wired into app.py. To use it, swap the import in
-src/app.py from `import agent` to `import agent_self_planning as agent`.
-
-Design:
-- One outer `query()` with system prompt that tells the model to read the
-  image, identify each problem, and call `solve_and_save` per problem.
-- `solve_and_save(problem_text)` is an MCP tool. Its body spawns a fresh
-  inner `query()` with the solver system prompt and the existing
-  `save_problem` MCP server. Each call is its own context window.
-"""
-
-import asyncio
 import time
-from pathlib import Path
 
+import figures
 from claude_agent_sdk import (
-    AssistantMessage,
     ClaudeAgentOptions,
-    ResultMessage,
-    TextBlock,
     create_sdk_mcp_server,
     query,
     tool,
 )
 from jinja2 import Template
+from lib import storage
 
-import figures
-import storage
-from agent import build_problem_store, log_message
+from .problem_store import build_problem_store
+from .util import MODEL, PROMPTS_DIR, log_message
 
-MODEL = "claude-sonnet-4-6"
-ORCHESTRATOR_MAX_TURNS = 20
 SOLVER_MAX_TURNS = 6
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
-ORCHESTRATOR_SYSTEM_PROMPT = (_PROMPTS_DIR / "orchestrator.md").read_text()
-_SOLVER_TEMPLATE = Template((_PROMPTS_DIR / "solver.md").read_text())
+_SOLVER_TEMPLATE = Template((PROMPTS_DIR / "solver.md").read_text())
 
 
 async def _run_inner_solver(
@@ -107,7 +87,7 @@ async def _run_inner_solver(
     return problem
 
 
-def _build_solver_tool(
+def build_solver_tool(
     source_image: str | None,
     all_saved: list[storage.Problem],
     with_solution: bool = True,
@@ -181,60 +161,4 @@ def _build_solver_tool(
         name="solver",
         version="1.0.0",
         tools=[solve_and_save],
-    )
-
-
-async def _process_image_async(
-    image_path: Path,
-    source_image: str | None,
-    with_solution: bool = True,
-) -> dict:
-    saved: list[storage.Problem] = []
-    server = _build_solver_tool(source_image, saved, with_solution=with_solution)
-
-    options = ClaudeAgentOptions(
-        model=MODEL,
-        system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
-        mcp_servers={"solver": server},
-        allowed_tools=["Read", "mcp__solver__solve_and_save"],
-        max_turns=ORCHESTRATOR_MAX_TURNS,
-    )
-
-    prompt = (
-        f"Read the image at {image_path}. Extract every distinct math problem "
-        "and dispatch each one to `mcp__solver__solve_and_save`. When all "
-        "problems have been dispatched, reply with a short summary."
-    )
-
-    print("[orchestrator] start", flush=True)
-    final_text = ""
-    async for message in query(prompt=prompt, options=options):
-        log_message(message)
-        if isinstance(message, AssistantMessage):
-            text_parts = [
-                block.text
-                for block in message.content
-                if isinstance(block, TextBlock)
-            ]
-            if text_parts:
-                final_text = "\n".join(text_parts)
-        elif isinstance(message, ResultMessage):
-            result_text = getattr(message, "result", None)
-            if result_text:
-                final_text = result_text
-    print("[orchestrator] done", flush=True)
-
-    return {"saved": saved, "summary": final_text or "[no summary returned]"}
-
-
-def process_image(
-    image_path: Path,
-    source_image: str | None = None,
-    with_solution: bool = True,
-) -> dict:
-    """Same signature as agent.process_image — drop-in alternative."""
-    return asyncio.run(
-        _process_image_async(
-            Path(image_path), source_image, with_solution=with_solution
-        )
     )
