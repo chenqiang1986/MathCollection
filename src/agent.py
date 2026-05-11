@@ -19,7 +19,7 @@ def _truncate(text: str, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def _log_message(message) -> None:
+def log_message(message) -> None:
     if isinstance(message, SystemMessage):
         subtype = getattr(message, "subtype", "")
         print(f"[agent] system{f' ({subtype})' if subtype else ''}", flush=True)
@@ -69,9 +69,9 @@ def _log_message(message) -> None:
     print(f"[agent] {type(message).__name__}: {message!r}", flush=True)
 
 
-def _build_problem_store(
+def build_problem_store(
     source_image: str | None,
-    saved: list[dict],
+    saved: list[storage.Problem],
     figure_image: str | None = None,
     with_solution: bool = True,
 ):
@@ -102,7 +102,7 @@ def _build_problem_store(
     @tool("save_problem", description, schema)
     async def save_problem(args: dict) -> dict:
         estimated_time = args.get("solve_time_seconds")
-        record = storage.save_problem(
+        problem = storage.save_problem(
             problem_text=args["problem_text"],
             category=args["category"],
             solution=args.get("solution", ""),
@@ -113,10 +113,10 @@ def _build_problem_store(
             ),
             solve_time_estimated=not with_solution,
         )
-        saved.append(record)
+        saved.append(problem)
         return {
             "content": [
-                {"type": "text", "text": f"Saved problem {record['id']}."}
+                {"type": "text", "text": f"Saved problem {problem.id}."}
             ]
         }
 

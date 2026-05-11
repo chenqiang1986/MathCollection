@@ -28,8 +28,9 @@ from claude_agent_sdk import (
 )
 from jinja2 import Template
 
+import figures
 import storage
-from agent import _build_problem_store, _log_message
+from agent import build_problem_store, log_message
 
 MODEL = "claude-sonnet-4-6"
 ORCHESTRATOR_MAX_TURNS = 20
@@ -45,9 +46,9 @@ async def _run_inner_solver(
     source_image: str | None,
     figure_image: str | None = None,
     with_solution: bool = True,
-) -> dict:
-    saved: list[dict] = []
-    server = _build_problem_store(
+) -> storage.Problem:
+    saved: list[storage.Problem] = []
+    server = build_problem_store(
         source_image, saved, figure_image=figure_image, with_solution=with_solution
     )
 
@@ -86,7 +87,7 @@ async def _run_inner_solver(
     print("[solver] start", flush=True)
     started = time.monotonic()
     async for message in query(prompt=prompt, options=options):
-        _log_message(message)
+        log_message(message)
     elapsed = time.monotonic() - started
     print(f"[solver] done in {elapsed:.2f}s", flush=True)
 
@@ -96,19 +97,19 @@ async def _run_inner_solver(
             f"{len(saved)} for problem: {problem_text!r}"
         )
 
-    record = saved[0]
+    problem = saved[0]
     if with_solution:
-        record = storage.update_problem(
-            record["id"],
+        problem = storage.update_problem(
+            problem.id,
             solve_time_seconds=round(elapsed, 2),
             solve_time_estimated=False,
         )
-    return record
+    return problem
 
 
 def _build_solver_tool(
     source_image: str | None,
-    all_saved: list[dict],
+    all_saved: list[storage.Problem],
     with_solution: bool = True,
 ):
     @tool(
@@ -135,7 +136,7 @@ def _build_solver_tool(
         figure_image: str | None = None
         if bbox and source_image:
             try:
-                figure_image = storage.save_figure(
+                figure_image = figures.save_figure(
                     source_image, bbox, rotation=rotation
                 )
             except Exception as e:
@@ -151,26 +152,26 @@ def _build_solver_tool(
                     ],
                     "is_error": True,
                 }
-        record = await _run_inner_solver(
+        problem = await _run_inner_solver(
             args["problem_text"],
             source_image,
             figure_image=figure_image,
             with_solution=with_solution,
         )
-        all_saved.append(record)
-        secs = record.get("solve_time_seconds")
+        all_saved.append(problem)
+        secs = problem.solve_time_seconds
         if secs is None:
             tail = "solve_time=unknown"
         else:
-            qual = "est." if record.get("solve_time_estimated") else "measured"
+            qual = "est." if problem.solve_time_estimated else "measured"
             tail = f"solve_time={secs}s ({qual})"
         return {
             "content": [
                 {
                     "type": "text",
                     "text": (
-                        f"Saved {record['id']} "
-                        f"(category={record['category']}, {tail})"
+                        f"Saved {problem.id} "
+                        f"(category={problem.category}, {tail})"
                     ),
                 }
             ]
@@ -188,7 +189,7 @@ async def _process_image_async(
     source_image: str | None,
     with_solution: bool = True,
 ) -> dict:
-    saved: list[dict] = []
+    saved: list[storage.Problem] = []
     server = _build_solver_tool(source_image, saved, with_solution=with_solution)
 
     options = ClaudeAgentOptions(
@@ -208,7 +209,7 @@ async def _process_image_async(
     print("[orchestrator] start", flush=True)
     final_text = ""
     async for message in query(prompt=prompt, options=options):
-        _log_message(message)
+        log_message(message)
         if isinstance(message, AssistantMessage):
             text_parts = [
                 block.text

@@ -261,7 +261,9 @@ def create_app() -> Flask:
         total, ids = storage.query_index(
             page=page, page_size=page_size, **filters
         )
-        problems = [p for p in (storage.get_problem(pid) for pid in ids) if p]
+        problems = [
+            p.to_dict() for p in (storage.get_problem(pid) for pid in ids) if p
+        ]
         return jsonify(
             {
                 "total": total,
@@ -290,7 +292,9 @@ def create_app() -> Flask:
             n = DEFAULT_PAGE_SIZE
         n = max(1, min(MAX_SAMPLE_SIZE, n))
         ids = storage.sample_index(n, **filters)
-        problems = [p for p in (storage.get_problem(pid) for pid in ids) if p]
+        problems = [
+            p.to_dict() for p in (storage.get_problem(pid) for pid in ids) if p
+        ]
         return jsonify({"problems": problems})
 
     return app

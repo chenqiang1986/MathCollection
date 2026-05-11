@@ -1,22 +1,43 @@
 import contextvars
+import dataclasses
 import json
+import math
 import re
 import sqlite3
 import uuid
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-
-from PIL import Image
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 UPLOADS_DIR = REPO_ROOT / "uploads"
 
-FIGURE_PADDING = 0.015  # 1.5% margin on each side of the model's bbox
-
 _CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("current_user")
 
 _EMAIL_SAFE_RE = re.compile(r"[^a-z0-9@._\-+]")
+
+
+@dataclass
+class Problem:
+    id: str
+    created_at: str
+    problem_text: str
+    category: str
+    solve_time_seconds: float | None = None
+    solve_time_estimated: bool = False
+    solution: str = ""
+    source_image: str | None = None
+    figure_image: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Problem":
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 def sanitize_email(email: str) -> str:
@@ -59,6 +80,10 @@ def figures_dir() -> Path:
     return user_dir() / "figures"
 
 
+def figure_path(filename: str) -> Path:
+    return figures_dir() / filename
+
+
 def index_path() -> Path:
     return user_dir() / "problems_index.db"
 
@@ -93,14 +118,13 @@ def init_index() -> None:
         if count == 0 and pdir.exists():
             for p in sorted(pdir.glob("*.json")):
                 try:
-                    rec = json.loads(p.read_text())
+                    data = json.loads(p.read_text())
                 except json.JSONDecodeError:
                     continue
-                _upsert_index_row(conn, rec)
+                _upsert_index_row(conn, Problem.from_dict(data))
 
 
-def _upsert_index_row(conn: sqlite3.Connection, record: dict) -> None:
-    filename = f"{record['id']}.json"
+def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
     conn.execute(
         """
         INSERT INTO problems
@@ -114,81 +138,21 @@ def _upsert_index_row(conn: sqlite3.Connection, record: dict) -> None:
             created_at = excluded.created_at
         """,
         (
-            record["id"],
-            filename,
-            (record.get("category") or "").lower(),
-            record.get("solve_time_seconds"),
-            1 if record.get("solve_time_estimated") else 0,
-            record["created_at"],
+            problem.id,
+            f"{problem.id}.json",
+            (problem.category or "").lower(),
+            problem.solve_time_seconds,
+            1 if problem.solve_time_estimated else 0,
+            problem.created_at,
         ),
     )
 
 
-_CW_ROTATION = {
-    0: None,
-    90: Image.ROTATE_270,   # 90° clockwise = PIL ROTATE_270 (counter-clockwise)
-    180: Image.ROTATE_180,
-    270: Image.ROTATE_90,   # 270° clockwise = PIL ROTATE_90
-}
-
-
-def save_figure(
-    source_image: str, bbox: list[float], rotation: int = 0
-) -> str:
-    """Crop a normalized [x0,y0,x1,y1] region from uploads/<source_image>,
-    optionally rotate clockwise by `rotation` (one of 0/90/180/270), and
-    save as a PNG under data/<user>/figures/. Returns the saved filename.
-
-    `bbox` values are in [0,1] in the source image's frame; a small
-    padding is added before clipping.
-    """
-    if len(bbox) != 4:
-        raise ValueError(f"figure_bbox must have 4 values, got {len(bbox)}")
-    rotation = int(rotation)
-    if rotation not in _CW_ROTATION:
-        raise ValueError(
-            f"figure_rotation must be 0, 90, 180, or 270 (got {rotation})"
-        )
-    x0, y0, x1, y1 = (float(v) for v in bbox)
-    if x0 > x1:
-        x0, x1 = x1, x0
-    if y0 > y1:
-        y0, y1 = y1, y0
-    x0 = max(0.0, x0 - FIGURE_PADDING)
-    y0 = max(0.0, y0 - FIGURE_PADDING)
-    x1 = min(1.0, x1 + FIGURE_PADDING)
-    y1 = min(1.0, y1 + FIGURE_PADDING)
-
-    src_path = UPLOADS_DIR / source_image
-    if not src_path.exists():
-        raise FileNotFoundError(f"source image not found: {src_path}")
-
-    fdir = figures_dir()
-    fdir.mkdir(parents=True, exist_ok=True)
-    with Image.open(src_path) as im:
-        im = im.convert("RGB")
-        w, h = im.size
-        px_box = (
-            int(round(x0 * w)),
-            int(round(y0 * h)),
-            int(round(x1 * w)),
-            int(round(y1 * h)),
-        )
-        if px_box[2] - px_box[0] < 1 or px_box[3] - px_box[1] < 1:
-            raise ValueError(f"figure_bbox crops to empty region: {bbox}")
-        cropped = im.crop(px_box)
-
-    transpose_op = _CW_ROTATION[rotation]
-    if transpose_op is not None:
-        cropped = cropped.transpose(transpose_op)
-
-    filename = f"{uuid.uuid4()}.png"
-    cropped.save(fdir / filename, "PNG")
-    return filename
-
-
-def figure_path(filename: str) -> Path:
-    return figures_dir() / filename
+def _write_problem_file(problem: Problem) -> None:
+    pdir = problems_dir()
+    pdir.mkdir(parents=True, exist_ok=True)
+    path = pdir / f"{problem.id}.json"
+    path.write_text(json.dumps(problem.to_dict(), indent=2, ensure_ascii=False))
 
 
 def save_problem(
@@ -199,48 +163,45 @@ def save_problem(
     figure_image: str | None = None,
     solve_time_seconds: float | None = None,
     solve_time_estimated: bool = False,
-) -> dict:
-    pdir = problems_dir()
-    pdir.mkdir(parents=True, exist_ok=True)
-    problem_id = str(uuid.uuid4())
-    record = {
-        "id": problem_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "problem_text": problem_text,
-        "category": category,
-        "solve_time_seconds": solve_time_seconds,
-        "solve_time_estimated": solve_time_estimated,
-        "solution": solution,
-        "source_image": source_image,
-        "figure_image": figure_image or None,
-    }
-    path = pdir / f"{problem_id}.json"
-    path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+) -> Problem:
+    problem = Problem(
+        id=str(uuid.uuid4()),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        problem_text=problem_text,
+        category=category,
+        solve_time_seconds=solve_time_seconds,
+        solve_time_estimated=solve_time_estimated,
+        solution=solution,
+        source_image=source_image,
+        figure_image=figure_image or None,
+    )
+    _write_problem_file(problem)
     with _connect() as conn:
-        _upsert_index_row(conn, record)
-    return record
+        _upsert_index_row(conn, problem)
+    return problem
 
 
-def update_problem(problem_id: str, **fields) -> dict:
+def update_problem(problem_id: str, **fields) -> Problem:
     path = problems_dir() / f"{problem_id}.json"
-    record = json.loads(path.read_text())
-    record.update(fields)
-    path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    data = json.loads(path.read_text())
+    data.update(fields)
+    problem = Problem.from_dict(data)
+    _write_problem_file(problem)
     with _connect() as conn:
-        _upsert_index_row(conn, record)
-    return record
+        _upsert_index_row(conn, problem)
+    return problem
 
 
 def delete_problem(problem_id: str) -> bool:
     path = problems_dir() / f"{problem_id}.json"
-    record = None
+    problem: Problem | None = None
     if path.exists():
         try:
-            record = json.loads(path.read_text())
+            problem = Problem.from_dict(json.loads(path.read_text()))
         except json.JSONDecodeError:
-            record = None
+            problem = None
         path.unlink()
-    figure = (record or {}).get("figure_image") if record else None
+    figure = problem.figure_image if problem else None
     if figure:
         fpath = figures_dir() / figure
         if fpath.exists():
@@ -248,27 +209,27 @@ def delete_problem(problem_id: str) -> bool:
     with _connect() as conn:
         cur = conn.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
         deleted_rows = cur.rowcount
-    return record is not None or deleted_rows > 0
+    return problem is not None or deleted_rows > 0
 
 
-def get_problem(problem_id: str) -> dict | None:
+def get_problem(problem_id: str) -> Problem | None:
     path = problems_dir() / f"{problem_id}.json"
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
+        return Problem.from_dict(json.loads(path.read_text()))
     except json.JSONDecodeError:
         return None
 
 
-def list_problems() -> list[dict]:
+def list_problems() -> list[Problem]:
     pdir = problems_dir()
     if not pdir.exists():
         return []
-    out = []
+    out: list[Problem] = []
     for p in sorted(pdir.glob("*.json")):
         try:
-            out.append(json.loads(p.read_text()))
+            out.append(Problem.from_dict(json.loads(p.read_text())))
         except json.JSONDecodeError:
             continue
     return out
@@ -311,7 +272,7 @@ def query_index(
     page: int = 1,
     page_size: int = 5,
     full_range_max: float | None = None,
-) -> tuple[int, list[dict]]:
+) -> tuple[int, list[str]]:
     where_clause, params = _build_where(category, min_time, max_time, full_range_max)
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -345,11 +306,17 @@ def sample_index(
     return [r["id"] for r in rows]
 
 
-DIFFICULTY_BUCKETS = [
-    ("Easy (<60s)", 0.0, 60.0),
-    ("Medium (1–3m)", 60.0, 180.0),
-    ("Hard (3–10m)", 180.0, 600.0),
-    ("Very Hard (>10m)", 600.0, float("inf")),
+class Bucket(NamedTuple):
+    label: str
+    lo: float
+    hi: float
+
+
+DIFFICULTY_BUCKETS: list[Bucket] = [
+    Bucket("Easy (<60s)", 0.0, 60.0),
+    Bucket("Medium (1–3m)", 60.0, 180.0),
+    Bucket("Hard (3–10m)", 180.0, 600.0),
+    Bucket("Very Hard (>10m)", 600.0, float("inf")),
 ]
 
 
@@ -372,20 +339,20 @@ def difficulty_distribution(category: str | None = None) -> list[dict]:
         rows = conn.execute(
             f"SELECT solve_time_seconds FROM problems{where}", params
         ).fetchall()
-    buckets = [{"label": label, "count": 0} for label, _, _ in DIFFICULTY_BUCKETS]
+    counts = [{"label": b.label, "count": 0} for b in DIFFICULTY_BUCKETS]
     unknown = 0
     for r in rows:
         t = r["solve_time_seconds"]
         if t is None:
             unknown += 1
             continue
-        for i, (_, lo, hi) in enumerate(DIFFICULTY_BUCKETS):
-            if lo <= t < hi:
-                buckets[i]["count"] += 1
+        for i, bucket in enumerate(DIFFICULTY_BUCKETS):
+            if bucket.lo <= t < bucket.hi:
+                counts[i]["count"] += 1
                 break
     if unknown:
-        buckets.append({"label": "Unknown", "count": unknown})
-    return buckets
+        counts.append({"label": "Unknown", "count": unknown})
+    return counts
 
 
 def index_summary() -> dict:
@@ -400,12 +367,7 @@ def index_summary() -> dict:
             "SELECT MAX(solve_time_seconds) FROM problems"
         ).fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
-    if max_time is None:
-        slider_max = 60
-    else:
-        import math
-
-        slider_max = max(1, int(math.ceil(max_time)))
+    slider_max = 60 if max_time is None else max(1, int(math.ceil(max_time)))
     return {
         "categories": cats,
         "max_time": slider_max,
