@@ -2,7 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
-from lib import storage
+from lib import agent, storage
 
 from .auth import login_required, upload_allowed_required
 
@@ -96,6 +96,22 @@ def delete_problem(problem_id):
     if not deleted:
         return jsonify({"error": "not found"}), 404
     return jsonify({"deleted": problem_id})
+
+
+@bp.route("/problems/<problem_id>/refine", methods=["POST"])
+@login_required
+@upload_allowed_required
+def refine_problem(problem_id):
+    problem = storage.get_problem(problem_id)
+    if not problem:
+        return jsonify({"error": "not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    hint = (payload.get("hint") or "").strip()
+    try:
+        updated = agent.refine_problem(problem, hint=hint)
+    except Exception as e:
+        return jsonify({"error": f"agent error: {e}"}), 500
+    return jsonify({"problem": updated.to_dict()})
 
 
 @bp.route("/sample", methods=["GET"])

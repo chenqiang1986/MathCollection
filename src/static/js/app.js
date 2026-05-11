@@ -1,5 +1,6 @@
 (function () {
   const PAGE_SIZE = 5;
+  const CAN_UPLOAD = document.body.dataset.canUpload === "1";
 
   const KATEX_OPTS = {
     delimiters: [
@@ -75,7 +76,12 @@
     const heading = `${(p.category || "").replace(/\b\w/g, c => c.toUpperCase())}` +
       (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
 
-    let html = `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>` +
+    const actionButtons = CAN_UPLOAD
+      ? `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
+        `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>`
+      : "";
+
+    let html = actionButtons +
       `<h3>${heading}</h3>` +
       `<div class="meta">` +
         `<span>${escapeHtml(p.id.slice(0, 8))}</span>` +
@@ -95,6 +101,18 @@
         html += `<div class="diagram">${p.solution_svg}</div>`;
       }
       html += `</details>`;
+    }
+    if (CAN_UPLOAD) {
+      const ctaLabel = p.solution ? "Refine with hint" : "Generate solution with hint";
+      html += `<div class="refine-panel" hidden>` +
+        `<label class="refine-label" for="refine-hint-${p.id}">Optional hint for Claude (e.g. "use the inscribed angle theorem", "try induction"):</label>` +
+        `<textarea class="refine-hint" id="refine-hint-${p.id}" rows="2" placeholder="Leave blank to just retry."></textarea>` +
+        `<div class="refine-actions">` +
+          `<button type="button" class="refine-submit">${ctaLabel}</button>` +
+          `<button type="button" class="refine-cancel">Cancel</button>` +
+          `<span class="refine-status progress-text"></span>` +
+        `</div>` +
+      `</div>`;
     }
     div.innerHTML = html;
     return div;
@@ -206,12 +224,94 @@
   }
 
   listEl.addEventListener("click", function (ev) {
-    const btn = ev.target.closest(".delete-btn");
-    if (!btn) return;
-    const problemEl = btn.closest(".problem");
-    if (!problemEl || !problemEl.dataset.id) return;
-    deleteProblem(problemEl.dataset.id, problemEl);
+    const delBtn = ev.target.closest(".delete-btn");
+    if (delBtn) {
+      const problemEl = delBtn.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        deleteProblem(problemEl.dataset.id, problemEl);
+      }
+      return;
+    }
+    const refineBtn = ev.target.closest(".refine-btn");
+    if (refineBtn) {
+      const problemEl = refineBtn.closest(".problem");
+      const panel = problemEl && problemEl.querySelector(".refine-panel");
+      if (panel) {
+        const hidden = panel.hasAttribute("hidden");
+        if (hidden) {
+          panel.removeAttribute("hidden");
+          const ta = panel.querySelector(".refine-hint");
+          if (ta) ta.focus();
+        } else {
+          panel.setAttribute("hidden", "");
+        }
+      }
+      return;
+    }
+    const cancelBtn = ev.target.closest(".refine-cancel");
+    if (cancelBtn) {
+      const panel = cancelBtn.closest(".refine-panel");
+      if (panel) panel.setAttribute("hidden", "");
+      return;
+    }
+    const submitBtn = ev.target.closest(".refine-submit");
+    if (submitBtn) {
+      const problemEl = submitBtn.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        refineProblem(problemEl.dataset.id, problemEl);
+      }
+      return;
+    }
   });
+
+  async function refineProblem(id, problemEl) {
+    const panel = problemEl.querySelector(".refine-panel");
+    if (!panel) return;
+    const hintEl = panel.querySelector(".refine-hint");
+    const submitBtn = panel.querySelector(".refine-submit");
+    const cancelBtn = panel.querySelector(".refine-cancel");
+    const statusEl = panel.querySelector(".refine-status");
+    const refineBtn = problemEl.querySelector(".refine-btn");
+    const hint = (hintEl && hintEl.value || "").trim();
+
+    submitBtn.disabled = true;
+    cancelBtn.disabled = true;
+    if (refineBtn) refineBtn.disabled = true;
+    if (hintEl) hintEl.disabled = true;
+    statusEl.textContent = "Generating — this can take a minute…";
+
+    let data;
+    try {
+      const resp = await fetch(`/api/problems/${encodeURIComponent(id)}/refine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hint })
+      });
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+        throw new Error(msg);
+      }
+      data = await resp.json();
+    } catch (e) {
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      if (refineBtn) refineBtn.disabled = false;
+      if (hintEl) hintEl.disabled = false;
+      statusEl.textContent = `Failed: ${e.message}`;
+      return;
+    }
+
+    if (data.problem) {
+      const fresh = renderProblem(data.problem);
+      problemEl.replaceWith(fresh);
+      renderMath(fresh);
+      const newDetails = fresh.querySelector("details");
+      if (newDetails) newDetails.open = true;
+    } else {
+      statusEl.textContent = "Updated.";
+    }
+  }
 
   let filterDebounce = null;
   function onFilterChange() {
