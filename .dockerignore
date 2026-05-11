@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.env
+.env.example
+.claude
+data
+uploads
+AGENTS.md
+deploy.sh
+Dockerfile
+.dockerignore
