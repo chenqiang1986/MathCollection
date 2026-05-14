@@ -50,6 +50,7 @@
   let sliderMax = 60;
   let currentPage = 1;
   let lastTotal = 0;
+  let knownCategories = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -77,7 +78,8 @@
       (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
 
     const actionButtons = CAN_UPLOAD
-      ? `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
+      ? `<button type="button" class="edit-category-btn" title="Edit category" aria-label="Edit category">✏️</button>` +
+        `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
         `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>`
       : "";
 
@@ -103,6 +105,15 @@
       html += `</details>`;
     }
     if (CAN_UPLOAD) {
+      html += `<div class="edit-category-panel" hidden>` +
+        `<label class="edit-category-label" for="edit-category-${p.id}">Category (pick or type):</label>` +
+        `<input class="edit-category-input" id="edit-category-${p.id}" list="all-categories" value="${escapeHtml(p.category || "")}" autocomplete="off">` +
+        `<div class="edit-category-actions">` +
+          `<button type="button" class="edit-category-submit">Save</button>` +
+          `<button type="button" class="edit-category-cancel">Cancel</button>` +
+          `<span class="edit-category-status progress-text"></span>` +
+        `</div>` +
+      `</div>`;
       const ctaLabel = p.solution ? "Refine with hint" : "Generate solution with hint";
       html += `<div class="refine-panel" hidden>` +
         `<label class="refine-label" for="refine-hint-${p.id}">Optional hint for Claude (e.g. "use the inscribed angle theorem", "try induction"):</label>` +
@@ -262,7 +273,96 @@
       }
       return;
     }
+    const editCatBtn = ev.target.closest(".edit-category-btn");
+    if (editCatBtn) {
+      const problemEl = editCatBtn.closest(".problem");
+      const panel = problemEl && problemEl.querySelector(".edit-category-panel");
+      if (panel) {
+        const hidden = panel.hasAttribute("hidden");
+        if (hidden) {
+          panel.removeAttribute("hidden");
+          const input = panel.querySelector(".edit-category-input");
+          if (input) { input.focus(); input.select(); }
+        } else {
+          panel.setAttribute("hidden", "");
+        }
+      }
+      return;
+    }
+    const editCatCancel = ev.target.closest(".edit-category-cancel");
+    if (editCatCancel) {
+      const panel = editCatCancel.closest(".edit-category-panel");
+      if (panel) panel.setAttribute("hidden", "");
+      return;
+    }
+    const editCatSubmit = ev.target.closest(".edit-category-submit");
+    if (editCatSubmit) {
+      const problemEl = editCatSubmit.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        updateCategory(problemEl.dataset.id, problemEl);
+      }
+      return;
+    }
   });
+
+  async function updateCategory(id, problemEl) {
+    const panel = problemEl.querySelector(".edit-category-panel");
+    if (!panel) return;
+    const input = panel.querySelector(".edit-category-input");
+    const submitBtn = panel.querySelector(".edit-category-submit");
+    const cancelBtn = panel.querySelector(".edit-category-cancel");
+    const statusEl = panel.querySelector(".edit-category-status");
+    const newCategory = (input && input.value || "").trim().toLowerCase();
+    if (!newCategory) {
+      statusEl.textContent = "Category cannot be empty.";
+      return;
+    }
+    submitBtn.disabled = true;
+    cancelBtn.disabled = true;
+    if (input) input.disabled = true;
+    statusEl.textContent = "Saving…";
+    let data;
+    try {
+      const resp = await fetch(`/api/problems/${encodeURIComponent(id)}/category`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: newCategory })
+      });
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+        throw new Error(msg);
+      }
+      data = await resp.json();
+    } catch (e) {
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      if (input) input.disabled = false;
+      statusEl.textContent = `Failed: ${e.message}`;
+      return;
+    }
+    if (data.problem) {
+      if (knownCategories.indexOf(data.problem.category) === -1) {
+        knownCategories.push(data.problem.category);
+        knownCategories.sort();
+        refreshCategoryDatalist();
+      }
+      const fresh = renderProblem(data.problem);
+      problemEl.replaceWith(fresh);
+      renderMath(fresh);
+    }
+  }
+
+  function refreshCategoryDatalist() {
+    const dl = document.getElementById("all-categories");
+    if (!dl) return;
+    dl.innerHTML = "";
+    knownCategories.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      dl.appendChild(opt);
+    });
+  }
 
   async function refineProblem(id, problemEl) {
     const panel = problemEl.querySelector(".refine-panel");
@@ -365,6 +465,8 @@
         catSel.appendChild(opt);
       });
     }
+    knownCategories = (summary.categories || []).slice();
+    refreshCategoryDatalist();
 
     filtersEl.hidden = false;
     printBar.hidden = false;

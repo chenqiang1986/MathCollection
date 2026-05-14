@@ -20,6 +20,13 @@ Per-user, file-backed problem store with a derived SQLite index.
   `delete_problem` removes the JSON, the figure (if any), and the index row.
 - [sql_index.py](sql_index.py) — SQLite schema, init/backfill, and the
   filter-aware `query_index` / `sample_index` used by the API.
+- [category_edits.py](category_edits.py) — append-only log of manual
+  category corrections (`record_category_edit`, `category_edit_examples`).
+  Lives in the same SQLite DB as the index but is **authoritative**, not
+  derived — unlike the `problems` table, it can't be rebuilt from the JSON
+  files. Each row denormalizes problem_text + solution at edit time so
+  examples stand on their own as training context for the recategorization
+  reviewer.
 - [stats.py](stats.py) — aggregations powering the stats page
   (`category_counts`, `difficulty_distribution`, `index_summary`).
 
@@ -38,8 +45,11 @@ non-whitelisted "guest" bucket also lives under `data/guest/`.
 
 ## Conventions
 
-- **JSON is canonical, SQLite is derived.** Deleting `problems_index.db` is
-  safe; `init_index()` rebuilds it from the JSON files on next startup.
+- **JSON is canonical, SQLite is derived — for the `problems` table.**
+  Deleting `problems_index.db` is safe for the index; `init_index()`
+  rebuilds it from the JSON files. The `category_edits` table in the same
+  DB is the **exception**: it's authoritative and is not rebuildable, so
+  don't drop the DB casually if a user has edited categories.
 - **Every write to a problem JSON file must mirror into the index** —
   that's what `_upsert_index_row` is for. Don't write a record without
   upserting, or `/api/problems` will miss it.

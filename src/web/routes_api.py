@@ -98,6 +98,31 @@ def delete_problem(problem_id):
     return jsonify({"deleted": problem_id})
 
 
+@bp.route("/problems/<problem_id>/category", methods=["POST"])
+@login_required
+@upload_allowed_required
+def update_category(problem_id):
+    problem = storage.get_problem(problem_id)
+    if not problem:
+        return jsonify({"error": "not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    new_category = (payload.get("category") or "").strip().lower()
+    if not new_category:
+        return jsonify({"error": "category is required"}), 400
+    old_category = (problem.category or "").lower()
+    if new_category == old_category:
+        return jsonify({"problem": problem.to_dict()})
+    updated = storage.update_problem(problem_id, category=new_category)
+    storage.record_category_edit(
+        problem_id=problem_id,
+        problem_text=problem.problem_text,
+        solution=problem.solution,
+        from_category=old_category,
+        to_category=new_category,
+    )
+    return jsonify({"problem": updated.to_dict()})
+
+
 @bp.route("/problems/<problem_id>/refine", methods=["POST"])
 @login_required
 @upload_allowed_required

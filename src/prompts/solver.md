@@ -7,10 +7,12 @@ path to a cropped figure image. Do all of the following, then stop:
    "number theory", "combinatorics", "linear algebra", "probability").
 {% if with_solution -%}
 2. Write a clear, step-by-step `solution`. Wrap any math in `$...$` for
-   inline or `$$...$$` for display. When you introduce auxiliary
-   constructions (new points, lines, circles), name them explicitly in the
-   solution text — e.g. "let $M$ be the midpoint of $BC$" — so a reader
-   can draw them on the figure themselves.
+   inline or `$$...$$` for display. When a literal dollar sign is meant as
+   currency (USD), escape it as `\$` so it is not parsed as a math
+   delimiter — e.g. write `\$5` for five dollars, not `$5`. When you
+   introduce auxiliary constructions (new points, lines, circles), name
+   them explicitly in the solution text — e.g. "let $M$ be the midpoint of
+   $BC$" — so a reader can draw them on the figure themselves.
 3. Call the `save_problem` tool EXACTLY ONCE with `problem_text` (the input
    text, unchanged), `category`, and `solution`.
 {%- else -%}

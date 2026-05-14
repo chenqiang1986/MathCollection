@@ -20,6 +20,12 @@ saved problem records.
 - [problem_store.py](problem_store.py) — in-process MCP server exposing
   `save_problem`. Its tool schema is shaped at runtime by `with_solution`
   (see below). Keep the schema in sync with `storage.save_problem`'s kwargs.
+- [recategorize.py](recategorize.py) — optional second-pass reviewer invoked
+  by the solver after the inner save. If the per-user `category_edits` table
+  has prior edits away from the AI's chosen category, runs a tiny no-tools
+  agent (system prompt: `prompts/recategorize.md`) that outputs `KEEP` or
+  `SWITCH: <cat>`. Switches via `storage.update_problem` on `SWITCH`.
+  Only runs in the extract path; refine intentionally skips it.
 - [util.py](util.py) — shared constants and the `log_message` printer used
   for tracing every assistant / tool / result message.
 

@@ -81,10 +81,14 @@ There are no tests, linters, or CI configured.
   [src/figures.py](src/figures.py).
 - **Uploads**: allowed extensions and the 10 MB cap are at the top of
   [src/web/uploads.py](src/web/uploads.py) and [src/app.py](src/app.py).
-- **Storage is append-only**: problem JSON files are canonical; the SQLite
-  index DB is purely derived — deleting it is safe and it rebuilds on next
-  startup. Delete is only exposed to whitelisted users; don't add a UI edit
-  flow without being asked.
+- **Storage is mostly append-only**: problem JSON files are canonical; the
+  SQLite `problems` table is purely derived — deleting it is safe and it
+  rebuilds on next startup. The one exception is the `category_edits`
+  table in the same DB, which is authoritative (it logs manual category
+  corrections and feeds the recategorization agent step); don't drop it.
+  Delete and `POST /api/problems/<id>/category` (manual category edit) are
+  the only write endpoints beyond upload; don't add other UI edit flows
+  without being asked.
 - **API surface**: the frontend pages problems via
   `/api/problems?page=&page_size=&category=&min_time=&max_time=&range_max=`.
   `range_max` is the slider's full-range upper bound; if the requested

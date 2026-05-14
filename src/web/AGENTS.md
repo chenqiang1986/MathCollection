@@ -15,6 +15,9 @@ HTTP-facing lives here.
   `/api/...`.
 - [routes_api.py](routes_api.py) — JSON endpoints under `/api`:
   `summary`, `problems` (paginated), `problems/<id>` (DELETE, whitelist-only),
+  `problems/<id>/category` (POST, whitelist-only — manual category edit;
+  also appends to the `category_edits` table for future re-classification),
+  `problems/<id>/refine` (POST, whitelist-only),
   `sample` (random for print-to-PDF), `stats/categories`, `stats/difficulty`.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the
@@ -44,7 +47,10 @@ HTTP-facing lives here.
 
 ## Don't
 
-- Don't add an `edit` endpoint — the data model is append-only by design.
+- Don't add new `edit` endpoints without an explicit ask — the data model is
+  append-only by design. The one exception is `POST /problems/<id>/category`,
+  which is whitelisted because manual category corrections feed the
+  recategorization agent step (see [../lib/agent/recategorize.py](../lib/agent/recategorize.py)).
 - Don't read uploads from the request path; use `UPLOAD_DIR` (resolved
   relative to the repo root) so behavior is consistent across blueprints.
 - Don't import the agent at module top-level in places that don't need it;

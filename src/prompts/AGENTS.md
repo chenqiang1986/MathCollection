@@ -8,6 +8,11 @@ override strings in Python.**
 - [orchestrator.md](orchestrator.md) — plain text. Loaded once and used as
   the `system_prompt` for the outer agent (see
   [../lib/agent/orchestrator.py](../lib/agent/orchestrator.py)).
+- [recategorize.md](recategorize.md) — Jinja2 template for the second-pass
+  category reviewer (see [../lib/agent/recategorize.py](../lib/agent/recategorize.py)).
+  Rendered with `ai_category: str` and `examples: list[dict]`. The reviewer
+  must output exactly `KEEP` or `SWITCH: <category>` — the parser tolerates
+  nothing else.
 - [solver.md](solver.md) — Jinja2 template rendered with one variable,
   `with_solution: bool` (see [../lib/agent/solver.py](../lib/agent/solver.py)).
   The two branches must stay aligned with the corresponding `save_problem`
@@ -21,7 +26,9 @@ override strings in Python.**
 ## Conventions
 
 - **Math delimiters in prompts must say `$...$` / `$$...$$`** — the page
-  renders KaTeX with exactly those delimiters.
+  renders KaTeX with exactly those delimiters. A literal USD dollar sign
+  must be escaped as `\$`, otherwise the renderer will treat it as the
+  opening of a math span.
 - **The orchestrator must delegate**, not solve. The solver must call its
   `save_problem` tool **exactly once**. If you loosen either rule in the
   prompt, the agent loop and post-processing in

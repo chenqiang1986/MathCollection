@@ -14,6 +14,7 @@ from jinja2 import Template
 from lib import storage
 
 from .problem_store import build_problem_store
+from .recategorize import maybe_recategorize_async
 from .util import MODEL, PROMPTS_DIR, log_message
 
 SOLVER_MAX_TURNS = 6
@@ -84,6 +85,7 @@ async def _run_inner_solver(
             solve_time_seconds=round(elapsed, 2),
             solve_time_estimated=False,
         )
+    problem = await maybe_recategorize_async(problem)
     return problem
 
 
@@ -97,7 +99,9 @@ def build_solver_tool(
         (
             "Spawn a fresh sub-agent that classifies, solves, and persists a "
             "single math problem. Pass the verbatim problem text with math "
-            "wrapped in `$...$` (inline) or `$$...$$` (display). If the "
+            "wrapped in `$...$` (inline) or `$$...$$` (display). Escape any "
+            "literal dollar-sign currency (USD) as `\\$` (e.g. `\\$5` for "
+            "five dollars) so it is not parsed as a math delimiter. If the "
             "problem has an accompanying figure in the source image, pass "
             "`figure_bbox` as a list [x0, y0, x1, y1] of normalized "
             "coordinates in [0, 1] tightly enclosing just the figure (no "

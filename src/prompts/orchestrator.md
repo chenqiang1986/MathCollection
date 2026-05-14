@@ -7,8 +7,10 @@ execute the work:
 2. Identify each distinct math problem.
 3. For EACH distinct problem, call the `solve_and_save` tool exactly once,
    passing the verbatim problem text. Wrap math in `$...$` (inline) or
-   `$$...$$` (display). The tool spawns a fresh sub-agent that classifies,
-   solves, and persists the problem in its own context window.
+   `$$...$$` (display). When a literal dollar sign is meant as currency
+   (USD), escape it as `\$` (e.g. `\$5` for five dollars) so it is not
+   parsed as a math delimiter. The tool spawns a fresh sub-agent that
+   classifies, solves, and persists the problem in its own context window.
 4. After every problem has been dispatched, reply with a short plain-text
    summary of how many problems you saved.
 

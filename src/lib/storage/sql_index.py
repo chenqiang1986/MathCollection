@@ -16,6 +16,8 @@ def _connect() -> sqlite3.Connection:
 
 def init_index() -> None:
     """Create tables and backfill from problems/*.json for the current user."""
+    from .category_edits import init_category_edits
+
     pdir = problems_dir()
     with _connect() as conn:
         conn.execute(
@@ -33,6 +35,7 @@ def init_index() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_category ON problems(category)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON problems(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_solve_time ON problems(solve_time_seconds)")
+        init_category_edits(conn)
         count = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
         if count == 0 and pdir.exists():
             for p in sorted(pdir.glob("*.json")):

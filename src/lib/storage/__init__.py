@@ -13,6 +13,7 @@ from .paths import (
     set_current_user,
     user_dir,
 )
+from .category_edits import category_edit_examples, record_category_edit
 from .problem_io import (
     delete_problem,
     get_problem,
@@ -32,6 +33,7 @@ __all__ = [
     "REPO_ROOT",
     "UPLOADS_DIR",
     "category_counts",
+    "category_edit_examples",
     "delete_problem",
     "difficulty_distribution",
     "figure_path",
@@ -43,6 +45,7 @@ __all__ = [
     "list_problems",
     "problems_dir",
     "query_index",
+    "record_category_edit",
     "reset_current_user",
     "sample_index",
     "sanitize_email",
