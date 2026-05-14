@@ -14,10 +14,9 @@ from jinja2 import Template
 from lib import storage
 
 from .problem_store import build_problem_store
-from .recategorize import maybe_recategorize_async
 from .util import MODEL, PROMPTS_DIR, log_message
 
-SOLVER_MAX_TURNS = 6
+SOLVER_MAX_TURNS = 7
 
 _SOLVER_TEMPLATE = Template((PROMPTS_DIR / "solver.md").read_text())
 
@@ -33,7 +32,10 @@ async def _run_inner_solver(
         source_image, saved, figure_image=figure_image, with_solution=with_solution
     )
 
-    allowed_tools = ["mcp__problem_store__save_problem"]
+    allowed_tools = [
+        "mcp__problem_store__save_problem",
+        "mcp__problem_store__lookup_category_edits",
+    ]
     if figure_image:
         allowed_tools.append("Read")
 
@@ -85,7 +87,6 @@ async def _run_inner_solver(
             solve_time_seconds=round(elapsed, 2),
             solve_time_estimated=False,
         )
-    problem = await maybe_recategorize_async(problem)
     return problem
 
 

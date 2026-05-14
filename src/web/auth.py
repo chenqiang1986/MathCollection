@@ -14,6 +14,7 @@ from flask import (
     session,
     url_for,
 )
+from db_setup.setup import init_user
 from lib import storage
 
 UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com"}
@@ -46,7 +47,6 @@ def login_required(view):
             return jsonify({"error": "login required"}), 401
         token = storage.set_current_user(storage_email(user["email"]))
         try:
-            storage.init_index()
             return view(*args, **kwargs)
         finally:
             storage.reset_current_user(token)
@@ -117,6 +117,11 @@ def auth_callback():
         "picture": userinfo.get("picture"),
     }
     session.permanent = True
+    token = storage.set_current_user(storage_email(email))
+    try:
+        init_user()
+    finally:
+        storage.reset_current_user(token)
     next_url = session.pop("post_login_redirect", None) or url_for("pages.index")
     return redirect(next_url)
 

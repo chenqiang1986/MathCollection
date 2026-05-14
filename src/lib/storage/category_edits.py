@@ -4,31 +4,14 @@ This table is the authoritative source for category-edit history (unlike the
 `problems` table in the same DB, which is derived from the JSON files and
 safe to rebuild). Keep enough denormalized context (problem_text, solution
 at edit time) so each row stands on its own as a training example, even if
-the underlying problem is later edited again or deleted."""
+the underlying problem is later edited again or deleted.
 
-import sqlite3
+Schema lives in [src/db_setup/schema.sql](../../db_setup/schema.sql).
+"""
+
 from datetime import datetime, timezone
 
 from .sql_index import _connect
-
-
-def init_category_edits(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS category_edits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            problem_id TEXT NOT NULL,
-            problem_text TEXT NOT NULL,
-            solution TEXT NOT NULL DEFAULT '',
-            from_category TEXT NOT NULL,
-            to_category TEXT NOT NULL,
-            edited_at TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_edits_from ON category_edits(from_category)"
-    )
 
 
 def record_category_edit(
@@ -39,7 +22,6 @@ def record_category_edit(
     to_category: str,
 ) -> None:
     with _connect() as conn:
-        init_category_edits(conn)
         conn.execute(
             """
             INSERT INTO category_edits
@@ -63,7 +45,6 @@ def category_edit_examples(
 ) -> list[dict]:
     """Most recent user edits that moved a problem AWAY from `from_category`."""
     with _connect() as conn:
-        init_category_edits(conn)
         rows = conn.execute(
             """
             SELECT problem_text, solution, from_category, to_category, edited_at

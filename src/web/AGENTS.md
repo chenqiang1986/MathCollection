@@ -29,8 +29,11 @@ HTTP-facing lives here.
 
 - **Every handler that touches storage is decorated with `@login_required`.**
   That decorator binds `storage.set_current_user(storage_email(email))`
-  for the duration of the request and calls `storage.init_index()` so the
-  SQLite mirror is ready. Don't call storage directly without this wrapper.
+  for the duration of the request. The SQLite mirror is created on first
+  successful login by [`/auth/callback`](auth.py), which calls
+  [`db_setup.setup.init_user`](../db_setup/setup.py) under the user context.
+  Handlers themselves never create tables. Don't call storage directly
+  without the decorator.
 - **`upload_allowed_required` goes AFTER `login_required`.** Login first,
   then check the whitelist. Apply it on `/upload` and any write endpoint.
 - **Filters come in as query params**, parsed by `_parse_filters()` in
@@ -50,7 +53,8 @@ HTTP-facing lives here.
 - Don't add new `edit` endpoints without an explicit ask — the data model is
   append-only by design. The one exception is `POST /problems/<id>/category`,
   which is whitelisted because manual category corrections feed the
-  recategorization agent step (see [../lib/agent/recategorize.py](../lib/agent/recategorize.py)).
+  `lookup_category_edits` tool used by the inner solver (see
+  [../lib/agent/problem_store.py](../lib/agent/problem_store.py)).
 - Don't read uploads from the request path; use `UPLOAD_DIR` (resolved
   relative to the repo root) so behavior is consistent across blueprints.
 - Don't import the agent at module top-level in places that don't need it;

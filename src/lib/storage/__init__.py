@@ -21,7 +21,7 @@ from .problem_io import (
     save_problem,
     update_problem,
 )
-from .sql_index import init_index, query_index, sample_index
+from .sql_index import query_index, sample_index
 from .stats import category_counts, difficulty_distribution, index_summary
 from .vocab import DIFFICULTY_BUCKETS, Bucket, Problem
 
@@ -41,7 +41,6 @@ __all__ = [
     "get_problem",
     "index_path",
     "index_summary",
-    "init_index",
     "list_problems",
     "problems_dir",
     "query_index",

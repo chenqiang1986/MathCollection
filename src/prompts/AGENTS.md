@@ -8,11 +8,6 @@ override strings in Python.**
 - [orchestrator.md](orchestrator.md) — plain text. Loaded once and used as
   the `system_prompt` for the outer agent (see
   [../lib/agent/orchestrator.py](../lib/agent/orchestrator.py)).
-- [recategorize.md](recategorize.md) — Jinja2 template for the second-pass
-  category reviewer (see [../lib/agent/recategorize.py](../lib/agent/recategorize.py)).
-  Rendered with `ai_category: str` and `examples: list[dict]`. The reviewer
-  must output exactly `KEEP` or `SWITCH: <category>` — the parser tolerates
-  nothing else.
 - [solver.md](solver.md) — Jinja2 template rendered with one variable,
   `with_solution: bool` (see [../lib/agent/solver.py](../lib/agent/solver.py)).
   The two branches must stay aligned with the corresponding `save_problem`
@@ -22,6 +17,9 @@ override strings in Python.**
     `{problem_text, category, solution}`.
   - `with_solution=False` → solver estimates `solve_time_seconds`; tool takes
     `{problem_text, category, solve_time_seconds}`.
+  Both branches must also instruct the solver to call
+  `lookup_category_edits` before `save_problem` — the save tool refuses the
+  first call until the lookup has been invoked.
 
 ## Conventions
 
@@ -45,5 +43,6 @@ override strings in Python.**
 - Don't paste prompt overrides into Python. If a rule is conditional on
   `with_solution`, express it with Jinja2 in `solver.md`.
 - Don't change the tool names referenced in these prompts
-  (`mcp__solver__solve_and_save`, `mcp__problem_store__save_problem`)
-  without updating the MCP servers.
+  (`mcp__solver__solve_and_save`, `mcp__problem_store__save_problem`,
+  `mcp__problem_store__lookup_category_edits`) without updating the MCP
+  servers.

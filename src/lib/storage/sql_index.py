@@ -1,9 +1,13 @@
-"""SQLite metadata index over the per-user problem JSON files."""
+"""SQLite metadata index over the per-user problem JSON files.
 
-import json
+Schema lives in [src/db_setup/schema.sql](../../db_setup/schema.sql) and is
+applied by `python -m db_setup.main <email>`. This module assumes the DB
+already exists.
+"""
+
 import sqlite3
 
-from .paths import index_path, problems_dir, user_dir
+from .paths import index_path, user_dir
 from .vocab import Problem
 
 
@@ -12,38 +16,6 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(index_path())
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def init_index() -> None:
-    """Create tables and backfill from problems/*.json for the current user."""
-    from .category_edits import init_category_edits
-
-    pdir = problems_dir()
-    with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS problems (
-                id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                category TEXT NOT NULL,
-                solve_time_seconds REAL,
-                solve_time_estimated INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_category ON problems(category)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON problems(created_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_solve_time ON problems(solve_time_seconds)")
-        init_category_edits(conn)
-        count = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
-        if count == 0 and pdir.exists():
-            for p in sorted(pdir.glob("*.json")):
-                try:
-                    data = json.loads(p.read_text())
-                except json.JSONDecodeError:
-                    continue
-                _upsert_index_row(conn, Problem.from_dict(data))
 
 
 def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:

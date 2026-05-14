@@ -16,7 +16,6 @@ def index():
         return render_template("index.html", result=None, logged_in=False)
     token = storage.set_current_user(storage_email(user["email"]))
     try:
-        storage.init_index()
         return render_template("index.html", result=None, logged_in=True)
     finally:
         storage.reset_current_user(token)

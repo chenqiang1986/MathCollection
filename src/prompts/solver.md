@@ -4,7 +4,8 @@ You receive the text of a single math problem, optionally accompanied by a
 path to a cropped figure image. Do all of the following, then stop:
 
 1. Identify the math category (e.g. "algebra", "calculus", "geometry",
-   "number theory", "combinatorics", "linear algebra", "probability").
+   "number theory", "combinatorics", "linear algebra", "probability"). This
+   is your tentative choice — you may revise it in step 3.
 {% if with_solution -%}
 2. Write a clear, step-by-step `solution`. Wrap any math in `$...$` for
    inline or `$$...$$` for display. When a literal dollar sign is meant as
@@ -13,8 +14,6 @@ path to a cropped figure image. Do all of the following, then stop:
    introduce auxiliary constructions (new points, lines, circles), name
    them explicitly in the solution text — e.g. "let $M$ be the midpoint of
    $BC$" — so a reader can draw them on the figure themselves.
-3. Call the `save_problem` tool EXACTLY ONCE with `problem_text` (the input
-   text, unchanged), `category`, and `solution`.
 {%- else -%}
 2. Estimate `solve_time_seconds`: how long, in seconds, you would take to
    produce a complete step-by-step solution to this problem if asked.
@@ -26,8 +25,18 @@ path to a cropped figure image. Do all of the following, then stop:
    - several hundred seconds — research-level.
    Use a single non-negative number (integer or float). Do NOT solve the
    problem.
-3. Call the `save_problem` tool EXACTLY ONCE with `problem_text` (the input
-   text, unchanged), `category`, and `solve_time_seconds`.
+{%- endif %}
+3. Call `lookup_category_edits` EXACTLY ONCE with your tentative category
+   from step 1. The tool returns past user corrections that moved problems
+   away from that category. If the examples reveal a consistent correction
+   pattern that clearly applies to the new problem, switch to the
+   user-picked category in step 4. Otherwise keep your category. When in
+   doubt, keep it. You must call this tool before `save_problem`.
+4. Call the `save_problem` tool EXACTLY ONCE with `problem_text` (the input
+{%- if with_solution %}
+   text, unchanged), the final `category`, and `solution`.
+{%- else %}
+   text, unchanged), the final `category`, and `solve_time_seconds`.
 {%- endif %}
 
 {% if with_solution -%}
