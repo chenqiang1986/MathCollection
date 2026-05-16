@@ -81,14 +81,25 @@
 
     const titleCase = s => String(s || "").replace(/\b\w/g, c => c.toUpperCase());
     const dlabel = difficultyLabel(p);
-    const catPart = titleCase(p.category);
-    const subPart = titleCase(p.subcategory);
-    const catHeading = subPart ? `${catPart} &mdash; ${subPart}` : catPart;
-    const heading = catHeading + (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
+    const catRaw = p.category || "";
+    const subRaw = p.subcategory || "";
+    const catPart = titleCase(catRaw);
+    const subPart = titleCase(subRaw);
+    const editAttrs = CAN_UPLOAD ? ' class="editable" title="Double-click to edit"' : "";
+    const catSpan = `<span data-field="category" data-value="${escapeHtml(catRaw)}"${editAttrs}>` +
+      `${escapeHtml(catPart) || "(uncategorized)"}</span>`;
+    let subSpan;
+    if (subPart) {
+      subSpan = ` &mdash; <span data-field="subcategory" data-value="${escapeHtml(subRaw)}"${editAttrs}>${escapeHtml(subPart)}</span>`;
+    } else if (CAN_UPLOAD) {
+      subSpan = ` &mdash; <span data-field="subcategory" data-value="" class="editable placeholder" title="Double-click to add">add subcategory</span>`;
+    } else {
+      subSpan = "";
+    }
+    const heading = catSpan + subSpan + (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
 
     const actionButtons = CAN_UPLOAD
-      ? `<button type="button" class="edit-category-btn" title="Edit category" aria-label="Edit category">✏️</button>` +
-        `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
+      ? `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
         `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>`
       : "";
 
@@ -114,17 +125,6 @@
       html += `</details>`;
     }
     if (CAN_UPLOAD) {
-      html += `<div class="edit-category-panel" hidden>` +
-        `<label class="edit-category-label" for="edit-category-${p.id}">Category (pick or type):</label>` +
-        `<input class="edit-category-input" id="edit-category-${p.id}" list="all-categories" value="${escapeHtml(p.category || "")}" autocomplete="off">` +
-        `<label class="edit-category-label" for="edit-subcategory-${p.id}">Subcategory (optional):</label>` +
-        `<input class="edit-subcategory-input" id="edit-subcategory-${p.id}" list="all-subcategories" value="${escapeHtml(p.subcategory || "")}" autocomplete="off">` +
-        `<div class="edit-category-actions">` +
-          `<button type="button" class="edit-category-submit">Save</button>` +
-          `<button type="button" class="edit-category-cancel">Cancel</button>` +
-          `<span class="edit-category-status progress-text"></span>` +
-        `</div>` +
-      `</div>`;
       const ctaLabel = p.solution ? "Refine with hint" : "Generate solution with hint";
       html += `<div class="refine-panel" hidden>` +
         `<label class="refine-label" for="refine-hint-${p.id}">Optional hint for Claude (e.g. "use the inscribed angle theorem", "try induction"):</label>` +
@@ -288,103 +288,102 @@
       }
       return;
     }
-    const editCatBtn = ev.target.closest(".edit-category-btn");
-    if (editCatBtn) {
-      const problemEl = editCatBtn.closest(".problem");
-      const panel = problemEl && problemEl.querySelector(".edit-category-panel");
-      if (panel) {
-        const hidden = panel.hasAttribute("hidden");
-        if (hidden) {
-          panel.removeAttribute("hidden");
-          const input = panel.querySelector(".edit-category-input");
-          if (input) { input.focus(); input.select(); }
-        } else {
-          panel.setAttribute("hidden", "");
-        }
-      }
-      return;
-    }
-    const editCatCancel = ev.target.closest(".edit-category-cancel");
-    if (editCatCancel) {
-      const panel = editCatCancel.closest(".edit-category-panel");
-      if (panel) panel.setAttribute("hidden", "");
-      return;
-    }
-    const editCatSubmit = ev.target.closest(".edit-category-submit");
-    if (editCatSubmit) {
-      const problemEl = editCatSubmit.closest(".problem");
-      if (problemEl && problemEl.dataset.id) {
-        updateCategory(problemEl.dataset.id, problemEl);
-      }
-      return;
-    }
   });
 
-  async function updateCategory(id, problemEl) {
-    const panel = problemEl.querySelector(".edit-category-panel");
-    if (!panel) return;
-    const input = panel.querySelector(".edit-category-input");
-    const subInput = panel.querySelector(".edit-subcategory-input");
-    const submitBtn = panel.querySelector(".edit-category-submit");
-    const cancelBtn = panel.querySelector(".edit-category-cancel");
-    const statusEl = panel.querySelector(".edit-category-status");
-    const newCategory = (input && input.value || "").trim().toLowerCase();
-    const newSubcategory = (subInput && subInput.value || "").trim().toLowerCase();
-    if (!newCategory) {
-      statusEl.textContent = "Category cannot be empty.";
-      return;
-    }
-    submitBtn.disabled = true;
-    cancelBtn.disabled = true;
-    if (input) input.disabled = true;
-    if (subInput) subInput.disabled = true;
-    statusEl.textContent = "Saving…";
-    let data;
-    try {
-      const resp = await fetch(`/api/problems/${encodeURIComponent(id)}/category`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: newCategory, subcategory: newSubcategory })
-      });
-      if (!resp.ok) {
-        let msg = `HTTP ${resp.status}`;
-        try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
-        throw new Error(msg);
-      }
-      data = await resp.json();
-    } catch (e) {
-      submitBtn.disabled = false;
-      cancelBtn.disabled = false;
-      if (input) input.disabled = false;
-      if (subInput) subInput.disabled = false;
-      statusEl.textContent = `Failed: ${e.message}`;
-      return;
-    }
-    if (data.problem) {
-      const cat = data.problem.category;
-      const sub = data.problem.subcategory || "";
-      if (cat && knownCategories.indexOf(cat) === -1) {
-        knownCategories.push(cat);
-        knownCategories.sort();
-      }
-      if (cat) {
-        const subs = subcategoryMap[cat] || (subcategoryMap[cat] = []);
-        if (sub && subs.indexOf(sub) === -1) {
-          subs.push(sub);
-          subs.sort();
+  listEl.addEventListener("dblclick", function (ev) {
+    if (!CAN_UPLOAD) return;
+    const span = ev.target.closest("h3 .editable");
+    if (!span) return;
+    if (span.querySelector("input")) return;
+    startInlineCategoryEdit(span);
+  });
+
+  function startInlineCategoryEdit(span) {
+    const problemEl = span.closest(".problem");
+    if (!problemEl) return;
+    const field = span.dataset.field;
+    const currentValue = span.dataset.value || "";
+    const originalHtml = span.innerHTML;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "inline-edit-input";
+    input.value = currentValue;
+    input.setAttribute("list", field === "category" ? "all-categories" : "all-subcategories");
+    input.autocomplete = "off";
+
+    span.classList.add("editing");
+    span.innerHTML = "";
+    span.appendChild(input);
+    input.focus();
+    input.select();
+
+    let finalized = false;
+    const restore = () => {
+      finalized = true;
+      span.classList.remove("editing");
+      span.innerHTML = originalHtml;
+    };
+
+    const commit = async () => {
+      if (finalized) return;
+      const newValue = input.value.trim().toLowerCase();
+      if (newValue === currentValue.toLowerCase()) { restore(); return; }
+      if (field === "category" && !newValue) { restore(); return; }
+
+      finalized = true;
+      const catSpanCur = problemEl.querySelector('h3 [data-field="category"]');
+      const subSpanCur = problemEl.querySelector('h3 [data-field="subcategory"]');
+      const payload = {
+        category: field === "category" ? newValue : (catSpanCur ? catSpanCur.dataset.value : ""),
+        subcategory: field === "subcategory" ? newValue : (subSpanCur ? subSpanCur.dataset.value : ""),
+      };
+      span.classList.remove("editing");
+      span.textContent = "Saving…";
+
+      try {
+        const resp = await fetch(`/api/problems/${encodeURIComponent(problemEl.dataset.id)}/category`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          let msg = `HTTP ${resp.status}`;
+          try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+          throw new Error(msg);
         }
+        const data = await resp.json();
+        if (data.problem) {
+          const cat = data.problem.category;
+          const sub = data.problem.subcategory || "";
+          if (cat && knownCategories.indexOf(cat) === -1) {
+            knownCategories.push(cat); knownCategories.sort();
+          }
+          if (cat) {
+            const subs = subcategoryMap[cat] || (subcategoryMap[cat] = []);
+            if (sub && subs.indexOf(sub) === -1) { subs.push(sub); subs.sort(); }
+          }
+          if (sub && knownSubcategories.indexOf(sub) === -1) {
+            knownSubcategories.push(sub); knownSubcategories.sort();
+          }
+          refreshCategoryDatalist();
+          refreshSubcategoryDatalist();
+          refreshSubcategorySelect();
+          const fresh = renderProblem(data.problem);
+          problemEl.replaceWith(fresh);
+          renderMath(fresh);
+        }
+      } catch (e) {
+        alert(`Failed to update: ${e.message}`);
+        span.innerHTML = originalHtml;
       }
-      if (sub && knownSubcategories.indexOf(sub) === -1) {
-        knownSubcategories.push(sub);
-        knownSubcategories.sort();
-      }
-      refreshCategoryDatalist();
-      refreshSubcategoryDatalist();
-      refreshSubcategorySelect();
-      const fresh = renderProblem(data.problem);
-      problemEl.replaceWith(fresh);
-      renderMath(fresh);
-    }
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      else if (e.key === "Escape") { e.preventDefault(); restore(); }
+    });
+    input.addEventListener("blur", commit);
   }
 
   function refreshCategoryDatalist() {

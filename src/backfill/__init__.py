@@ -2,6 +2,6 @@
 problems. Kept out of `lib/agent` because these are CLI-only workflows, not
 something the web app calls at request time."""
 
-from .subcategory import backfill_subcategory
+from .classify import classify_problems
 
-__all__ = ["backfill_subcategory"]
+__all__ = ["classify_problems"]
