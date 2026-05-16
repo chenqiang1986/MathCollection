@@ -10,7 +10,7 @@ from claude_agent_sdk import (
     query,
     tool,
 )
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader
 from lib import storage
 
 from .problem_store import build_problem_store
@@ -18,7 +18,10 @@ from .util import MODEL, PROMPTS_DIR, log_message
 
 SOLVER_MAX_TURNS = 7
 
-_SOLVER_TEMPLATE = Template((PROMPTS_DIR / "solver.md").read_text())
+_SOLVER_TEMPLATE = Environment(
+    loader=FileSystemLoader(PROMPTS_DIR),
+    keep_trailing_newline=True,
+).get_template("solver.md")
 
 
 async def _run_inner_solver(

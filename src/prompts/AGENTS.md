@@ -8,8 +8,14 @@ override strings in Python.**
 - [orchestrator.md](orchestrator.md) — plain text. Loaded once and used as
   the `system_prompt` for the outer agent (see
   [../lib/agent/orchestrator.py](../lib/agent/orchestrator.py)).
+- [math_category.md](math_category.md) — closed list of allowed
+  `(category, subcategory)` pairs. Included into `solver.md` so the solver
+  picks from a fixed vocabulary instead of inventing synonyms. Edit this
+  file (not `solver.md`) to add/rename categories.
 - [solver.md](solver.md) — Jinja2 template rendered with one variable,
   `with_solution: bool` (see [../lib/agent/solver.py](../lib/agent/solver.py)).
+  Loaded via `FileSystemLoader(PROMPTS_DIR)` so `{% include %}` resolves
+  sibling files — currently includes [math_category.md](math_category.md).
   The two branches must stay aligned with the corresponding `save_problem`
   tool schema in
   [../lib/agent/problem_store.py](../lib/agent/problem_store.py):
