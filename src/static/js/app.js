@@ -34,6 +34,7 @@
   const filtersEl = document.getElementById("filters");
   const printBar = document.getElementById("print-bar");
   const catSel = document.getElementById("filter-category");
+  const subSel = document.getElementById("filter-subcategory");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -51,6 +52,10 @@
   let currentPage = 1;
   let lastTotal = 0;
   let knownCategories = [];
+  // Map { category: [subcategory, ...] } returned by /api/summary.
+  let subcategoryMap = {};
+  // Flat set of all subcategories across categories (for datalist on edit).
+  let knownSubcategories = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -71,11 +76,15 @@
     div.className = "problem";
     div.dataset.id = p.id;
     div.dataset.category = (p.category || "").toLowerCase();
+    div.dataset.subcategory = (p.subcategory || "").toLowerCase();
     div.dataset.solveTime = p.solve_time_seconds == null ? "" : p.solve_time_seconds;
 
+    const titleCase = s => String(s || "").replace(/\b\w/g, c => c.toUpperCase());
     const dlabel = difficultyLabel(p);
-    const heading = `${(p.category || "").replace(/\b\w/g, c => c.toUpperCase())}` +
-      (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
+    const catPart = titleCase(p.category);
+    const subPart = titleCase(p.subcategory);
+    const catHeading = subPart ? `${catPart} &mdash; ${subPart}` : catPart;
+    const heading = catHeading + (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
 
     const actionButtons = CAN_UPLOAD
       ? `<button type="button" class="edit-category-btn" title="Edit category" aria-label="Edit category">✏️</button>` +
@@ -108,6 +117,8 @@
       html += `<div class="edit-category-panel" hidden>` +
         `<label class="edit-category-label" for="edit-category-${p.id}">Category (pick or type):</label>` +
         `<input class="edit-category-input" id="edit-category-${p.id}" list="all-categories" value="${escapeHtml(p.category || "")}" autocomplete="off">` +
+        `<label class="edit-category-label" for="edit-subcategory-${p.id}">Subcategory (optional):</label>` +
+        `<input class="edit-subcategory-input" id="edit-subcategory-${p.id}" list="all-subcategories" value="${escapeHtml(p.subcategory || "")}" autocomplete="off">` +
         `<div class="edit-category-actions">` +
           `<button type="button" class="edit-category-submit">Save</button>` +
           `<button type="button" class="edit-category-cancel">Cancel</button>` +
@@ -139,6 +150,7 @@
   function currentFilterParams() {
     const params = new URLSearchParams();
     if (catSel && catSel.value) params.set("category", catSel.value);
+    if (subSel && subSel.value) params.set("subcategory", subSel.value);
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
@@ -178,7 +190,10 @@
 
   function updateFilterCount(total) {
     if (!countEl) return;
-    const active = (catSel && catSel.value) || rangeActive();
+    const active =
+      (catSel && catSel.value) ||
+      (subSel && subSel.value) ||
+      rangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
 
@@ -309,10 +324,12 @@
     const panel = problemEl.querySelector(".edit-category-panel");
     if (!panel) return;
     const input = panel.querySelector(".edit-category-input");
+    const subInput = panel.querySelector(".edit-subcategory-input");
     const submitBtn = panel.querySelector(".edit-category-submit");
     const cancelBtn = panel.querySelector(".edit-category-cancel");
     const statusEl = panel.querySelector(".edit-category-status");
     const newCategory = (input && input.value || "").trim().toLowerCase();
+    const newSubcategory = (subInput && subInput.value || "").trim().toLowerCase();
     if (!newCategory) {
       statusEl.textContent = "Category cannot be empty.";
       return;
@@ -320,13 +337,14 @@
     submitBtn.disabled = true;
     cancelBtn.disabled = true;
     if (input) input.disabled = true;
+    if (subInput) subInput.disabled = true;
     statusEl.textContent = "Saving…";
     let data;
     try {
       const resp = await fetch(`/api/problems/${encodeURIComponent(id)}/category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: newCategory })
+        body: JSON.stringify({ category: newCategory, subcategory: newSubcategory })
       });
       if (!resp.ok) {
         let msg = `HTTP ${resp.status}`;
@@ -338,15 +356,31 @@
       submitBtn.disabled = false;
       cancelBtn.disabled = false;
       if (input) input.disabled = false;
+      if (subInput) subInput.disabled = false;
       statusEl.textContent = `Failed: ${e.message}`;
       return;
     }
     if (data.problem) {
-      if (knownCategories.indexOf(data.problem.category) === -1) {
-        knownCategories.push(data.problem.category);
+      const cat = data.problem.category;
+      const sub = data.problem.subcategory || "";
+      if (cat && knownCategories.indexOf(cat) === -1) {
+        knownCategories.push(cat);
         knownCategories.sort();
-        refreshCategoryDatalist();
       }
+      if (cat) {
+        const subs = subcategoryMap[cat] || (subcategoryMap[cat] = []);
+        if (sub && subs.indexOf(sub) === -1) {
+          subs.push(sub);
+          subs.sort();
+        }
+      }
+      if (sub && knownSubcategories.indexOf(sub) === -1) {
+        knownSubcategories.push(sub);
+        knownSubcategories.sort();
+      }
+      refreshCategoryDatalist();
+      refreshSubcategoryDatalist();
+      refreshSubcategorySelect();
       const fresh = renderProblem(data.problem);
       problemEl.replaceWith(fresh);
       renderMath(fresh);
@@ -362,6 +396,52 @@
       opt.value = c;
       dl.appendChild(opt);
     });
+  }
+
+  function refreshSubcategoryDatalist() {
+    const dl = document.getElementById("all-subcategories");
+    if (!dl) return;
+    dl.innerHTML = "";
+    knownSubcategories.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      dl.appendChild(opt);
+    });
+  }
+
+  function refreshSubcategorySelect() {
+    // Populate the subcategory filter dropdown based on the currently
+    // selected category. With no category selected, show every known
+    // subcategory across all categories.
+    if (!subSel) return;
+    const previousValue = subSel.value;
+    const cat = catSel && catSel.value;
+    let options;
+    if (cat) {
+      options = (subcategoryMap[cat] || []).slice();
+    } else {
+      const seen = new Set();
+      options = [];
+      Object.values(subcategoryMap).forEach(list => {
+        list.forEach(s => {
+          if (!seen.has(s)) { seen.add(s); options.push(s); }
+        });
+      });
+      options.sort();
+    }
+    subSel.innerHTML = `<option value="">All</option>`;
+    options.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s.replace(/\b\w/g, ch => ch.toUpperCase());
+      subSel.appendChild(opt);
+    });
+    // Preserve the previous selection if it's still valid.
+    if (previousValue && options.indexOf(previousValue) !== -1) {
+      subSel.value = previousValue;
+    } else {
+      subSel.value = "";
+    }
   }
 
   async function refineProblem(id, problemEl) {
@@ -466,14 +546,24 @@
       });
     }
     knownCategories = (summary.categories || []).slice();
+    subcategoryMap = summary.subcategories || {};
+    const subSet = new Set();
+    Object.values(subcategoryMap).forEach(list => list.forEach(s => subSet.add(s)));
+    knownSubcategories = Array.from(subSet).sort();
     refreshCategoryDatalist();
+    refreshSubcategoryDatalist();
+    refreshSubcategorySelect();
 
     filtersEl.hidden = false;
     printBar.hidden = false;
     syncSlider();
   }
 
-  if (catSel) catSel.addEventListener("change", onFilterChange);
+  if (catSel) catSel.addEventListener("change", () => {
+    refreshSubcategorySelect();
+    onFilterChange();
+  });
+  if (subSel) subSel.addEventListener("change", onFilterChange);
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
 

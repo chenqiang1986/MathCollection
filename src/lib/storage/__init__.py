@@ -22,7 +22,12 @@ from .problem_io import (
     update_problem,
 )
 from .sql_index import query_index, sample_index
-from .stats import category_counts, difficulty_distribution, index_summary
+from .stats import (
+    category_counts,
+    difficulty_distribution,
+    index_summary,
+    subcategory_counts,
+)
 from .vocab import DIFFICULTY_BUCKETS, Bucket, Problem
 
 __all__ = [
@@ -50,6 +55,7 @@ __all__ = [
     "sanitize_email",
     "save_problem",
     "set_current_user",
+    "subcategory_counts",
     "update_problem",
     "user_dir",
 ]

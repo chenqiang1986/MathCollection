@@ -12,6 +12,7 @@ class Problem:
     created_at: str
     problem_text: str
     category: str
+    subcategory: str = ""
     solve_time_seconds: float | None = None
     solve_time_estimated: bool = False
     solution: str = ""

@@ -38,6 +38,7 @@ def _build_update_store(
         {
             "problem_text": str,
             "category": str,
+            "subcategory": str,
             "solution": str,
         },
     )
@@ -45,6 +46,7 @@ def _build_update_store(
         problem = storage.update_problem(
             problem_id,
             category=args["category"],
+            subcategory=args.get("subcategory", ""),
             solution=args.get("solution", ""),
         )
         updated.append(problem)

@@ -70,6 +70,11 @@
         <option value="">All</option>
       </select>
     </label>
+    <label>Subcategory:
+      <select id="filter-subcategory">
+        <option value="">All</option>
+      </select>
+    </label>
     <label class="range-label">Difficulty Measure:
       <div class="range-slider" data-max="60">
         <div class="range-track"></div>
@@ -105,6 +110,7 @@
 
   <div id="print-container" aria-hidden="true"></div>
   <datalist id="all-categories"></datalist>
+  <datalist id="all-subcategories"></datalist>
   {% endif %}
 
 </body>

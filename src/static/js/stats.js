@@ -1,10 +1,14 @@
 (function () {
   const catChartEl = document.getElementById("chart-categories");
+  const subChartEl = document.getElementById("chart-subcategories");
+  const subTitleEl = document.getElementById("subcategory-title");
   const diffChartEl = document.getElementById("chart-difficulty");
   const diffTitleEl = document.getElementById("difficulty-title");
 
   let selectedCategory = null;
+  let selectedSubcategory = null;
   let categoryItems = [];
+  let subcategoryItems = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -58,9 +62,22 @@
   }
 
   function onCategoryClick(it) {
-    selectedCategory = (selectedCategory === it.key) ? null : it.key;
+    if (selectedCategory === it.key) {
+      selectedCategory = null;
+      selectedSubcategory = null;
+    } else {
+      selectedCategory = it.key;
+      selectedSubcategory = null;
+    }
     renderCategoryChart();
-    loadDifficulty(selectedCategory);
+    loadSubcategories(selectedCategory);
+    loadDifficulty(selectedCategory, null);
+  }
+
+  function onSubcategoryClick(it) {
+    selectedSubcategory = (selectedSubcategory === it.key) ? null : it.key;
+    renderSubcategoryChart();
+    loadDifficulty(selectedCategory, selectedSubcategory);
   }
 
   function renderCategoryChart() {
@@ -68,6 +85,19 @@
       clickable: true,
       activeKey: selectedCategory,
       onClick: onCategoryClick,
+    });
+  }
+
+  function renderSubcategoryChart() {
+    if (subTitleEl) {
+      subTitleEl.textContent = selectedCategory
+        ? `Subcategories — ${titleCase(selectedCategory)}`
+        : "Subcategories (all categories)";
+    }
+    renderBars(subChartEl, subcategoryItems, {
+      clickable: true,
+      activeKey: selectedSubcategory,
+      onClick: onSubcategoryClick,
     });
   }
 
@@ -90,13 +120,44 @@
     renderCategoryChart();
   }
 
-  async function loadDifficulty(category) {
-    diffTitleEl.textContent = category
-      ? `Difficulty distribution — ${titleCase(category)}`
+  async function loadSubcategories(category) {
+    if (!subChartEl) return;
+    subChartEl.innerHTML = `<p class="chart-empty"><em>Loading…</em></p>`;
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    let data;
+    try {
+      const resp = await fetch(`/api/stats/subcategories?${params.toString()}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      data = await resp.json();
+    } catch (e) {
+      subChartEl.innerHTML = `<p class="chart-empty"><em>Failed to load: ${escapeHtml(e.message)}</em></p>`;
+      return;
+    }
+    subcategoryItems = (data.subcategories || []).map(s => {
+      const label = s.subcategory
+        ? (category ? titleCase(s.subcategory) : `${titleCase(s.category)} / ${titleCase(s.subcategory)}`)
+        : `${titleCase(s.category)} (no subcategory)`;
+      return {
+        key: s.subcategory || "",
+        label,
+        value: s.count,
+      };
+    });
+    renderSubcategoryChart();
+  }
+
+  async function loadDifficulty(category, subcategory) {
+    const parts = [];
+    if (category) parts.push(titleCase(category));
+    if (subcategory) parts.push(titleCase(subcategory));
+    diffTitleEl.textContent = parts.length
+      ? `Difficulty distribution — ${parts.join(" / ")}`
       : "Difficulty distribution (all problems)";
     diffChartEl.innerHTML = `<p class="chart-empty"><em>Loading…</em></p>`;
     const params = new URLSearchParams();
     if (category) params.set("category", category);
+    if (subcategory) params.set("subcategory", subcategory);
     let data;
     try {
       const resp = await fetch(`/api/stats/difficulty?${params.toString()}`);
@@ -116,6 +177,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     loadCategories();
-    loadDifficulty(null);
+    loadSubcategories(null);
+    loadDifficulty(null, null);
   });
 })();

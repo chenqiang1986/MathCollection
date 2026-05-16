@@ -15,7 +15,8 @@ def category_counts() -> list[dict]:
     return [{"category": r["category"], "count": r["n"]} for r in rows]
 
 
-def difficulty_distribution(category: str | None = None) -> list[dict]:
+def subcategory_counts(category: str | None = None) -> list[dict]:
+    """Counts grouped by subcategory, optionally filtered to one category."""
     where = ""
     params: list = []
     if category:
@@ -23,7 +24,36 @@ def difficulty_distribution(category: str | None = None) -> list[dict]:
         params.append(category.lower())
     with _connect() as conn:
         rows = conn.execute(
-            f"SELECT solve_time_seconds FROM problems{where}", params
+            "SELECT category, subcategory, COUNT(*) AS n FROM problems"
+            f"{where} GROUP BY category, subcategory "
+            "ORDER BY category, n DESC, subcategory",
+            params,
+        ).fetchall()
+    return [
+        {
+            "category": r["category"],
+            "subcategory": r["subcategory"],
+            "count": r["n"],
+        }
+        for r in rows
+    ]
+
+
+def difficulty_distribution(
+    category: str | None = None, subcategory: str | None = None
+) -> list[dict]:
+    where: list[str] = []
+    params: list = []
+    if category:
+        where.append("category = ?")
+        params.append(category.lower())
+    if subcategory:
+        where.append("subcategory = ?")
+        params.append(subcategory.lower())
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT solve_time_seconds FROM problems{clause}", params
         ).fetchall()
     counts = [{"label": b.label, "count": 0} for b in DIFFICULTY_BUCKETS]
     unknown = 0
@@ -43,19 +73,26 @@ def difficulty_distribution(category: str | None = None) -> list[dict]:
 
 def index_summary() -> dict:
     with _connect() as conn:
-        cats = [
-            r["category"]
-            for r in conn.execute(
-                "SELECT DISTINCT category FROM problems ORDER BY category"
-            ).fetchall()
-        ]
+        rows = conn.execute(
+            "SELECT DISTINCT category, subcategory FROM problems "
+            "ORDER BY category, subcategory"
+        ).fetchall()
         max_time = conn.execute(
             "SELECT MAX(solve_time_seconds) FROM problems"
         ).fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
+    # Group subcategories under their parent category, preserving order.
+    cat_map: dict[str, list[str]] = {}
+    for r in rows:
+        subs = cat_map.setdefault(r["category"], [])
+        sub = r["subcategory"] or ""
+        if sub and sub not in subs:
+            subs.append(sub)
+    categories = list(cat_map.keys())
     slider_max = 60 if max_time is None else max(1, int(math.ceil(max_time)))
     return {
-        "categories": cats,
+        "categories": categories,
+        "subcategories": cat_map,
         "max_time": slider_max,
         "total": total,
     }

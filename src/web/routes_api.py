@@ -25,9 +25,11 @@ def _parse_float(name: str) -> float | None:
 
 def _parse_filters() -> dict:
     category = request.args.get("category") or None
+    subcategory = request.args.get("subcategory") or None
     full_range_max = _parse_float("range_max")
     return {
         "category": category,
+        "subcategory": subcategory,
         "min_time": _parse_float("min_time"),
         "max_time": _parse_float("max_time"),
         "full_range_max": full_range_max,
@@ -40,14 +42,28 @@ def stats_categories():
     return jsonify({"categories": storage.category_counts()})
 
 
-@bp.route("/stats/difficulty", methods=["GET"])
+@bp.route("/stats/subcategories", methods=["GET"])
 @login_required
-def stats_difficulty():
+def stats_subcategories():
     category = request.args.get("category") or None
     return jsonify(
         {
             "category": category,
-            "buckets": storage.difficulty_distribution(category),
+            "subcategories": storage.subcategory_counts(category),
+        }
+    )
+
+
+@bp.route("/stats/difficulty", methods=["GET"])
+@login_required
+def stats_difficulty():
+    category = request.args.get("category") or None
+    subcategory = request.args.get("subcategory") or None
+    return jsonify(
+        {
+            "category": category,
+            "subcategory": subcategory,
+            "buckets": storage.difficulty_distribution(category, subcategory),
         }
     )
 
@@ -109,16 +125,27 @@ def update_category(problem_id):
     new_category = (payload.get("category") or "").strip().lower()
     if not new_category:
         return jsonify({"error": "category is required"}), 400
+    # subcategory is optional; an empty string clears it.
+    raw_sub = payload.get("subcategory")
+    if raw_sub is None:
+        new_subcategory = (problem.subcategory or "").lower()
+    else:
+        new_subcategory = raw_sub.strip().lower()
     old_category = (problem.category or "").lower()
-    if new_category == old_category:
+    old_subcategory = (problem.subcategory or "").lower()
+    if new_category == old_category and new_subcategory == old_subcategory:
         return jsonify({"problem": problem.to_dict()})
-    updated = storage.update_problem(problem_id, category=new_category)
+    updated = storage.update_problem(
+        problem_id, category=new_category, subcategory=new_subcategory
+    )
     storage.record_category_edit(
         problem_id=problem_id,
         problem_text=problem.problem_text,
         solution=problem.solution,
         from_category=old_category,
         to_category=new_category,
+        from_subcategory=old_subcategory,
+        to_subcategory=new_subcategory,
     )
     return jsonify({"problem": updated.to_dict()})
 

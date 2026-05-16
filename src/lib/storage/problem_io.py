@@ -19,6 +19,7 @@ def _write_problem_file(problem: Problem) -> None:
 def save_problem(
     problem_text: str,
     category: str,
+    subcategory: str = "",
     solution: str = "",
     source_image: str | None = None,
     figure_image: str | None = None,
@@ -30,6 +31,7 @@ def save_problem(
         created_at=datetime.now(timezone.utc).isoformat(),
         problem_text=problem_text,
         category=category,
+        subcategory=subcategory or "",
         solve_time_seconds=solve_time_seconds,
         solve_time_estimated=solve_time_estimated,
         solution=solution,

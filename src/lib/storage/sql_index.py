@@ -22,11 +22,13 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
     conn.execute(
         """
         INSERT INTO problems
-            (id, filename, category, solve_time_seconds, solve_time_estimated, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (id, filename, category, subcategory, solve_time_seconds,
+             solve_time_estimated, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             category = excluded.category,
+            subcategory = excluded.subcategory,
             solve_time_seconds = excluded.solve_time_seconds,
             solve_time_estimated = excluded.solve_time_estimated,
             created_at = excluded.created_at
@@ -35,6 +37,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             problem.id,
             f"{problem.id}.json",
             (problem.category or "").lower(),
+            (problem.subcategory or "").lower(),
             problem.solve_time_seconds,
             1 if problem.solve_time_estimated else 0,
             problem.created_at,
@@ -44,6 +47,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
 
 def _build_where(
     category: str | None,
+    subcategory: str | None,
     min_time: float | None,
     max_time: float | None,
     full_range_max: float | None = None,
@@ -55,6 +59,9 @@ def _build_where(
     if category:
         where.append("category = ?")
         params.append(category.lower())
+    if subcategory:
+        where.append("subcategory = ?")
+        params.append(subcategory.lower())
     range_active = False
     if min_time is not None and (full_range_max is None or min_time > 0):
         range_active = True
@@ -74,13 +81,16 @@ def _build_where(
 
 def query_index(
     category: str | None = None,
+    subcategory: str | None = None,
     min_time: float | None = None,
     max_time: float | None = None,
     page: int = 1,
     page_size: int = 5,
     full_range_max: float | None = None,
 ) -> tuple[int, list[str]]:
-    where_clause, params = _build_where(category, min_time, max_time, full_range_max)
+    where_clause, params = _build_where(
+        category, subcategory, min_time, max_time, full_range_max
+    )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
     offset = (page - 1) * page_size
@@ -100,11 +110,14 @@ def query_index(
 def sample_index(
     n: int,
     category: str | None = None,
+    subcategory: str | None = None,
     min_time: float | None = None,
     max_time: float | None = None,
     full_range_max: float | None = None,
 ) -> list[str]:
-    where_clause, params = _build_where(category, min_time, max_time, full_range_max)
+    where_clause, params = _build_where(
+        category, subcategory, min_time, max_time, full_range_max
+    )
     with _connect() as conn:
         rows = conn.execute(
             f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT ?",

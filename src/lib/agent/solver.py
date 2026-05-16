@@ -150,13 +150,16 @@ def build_solver_tool(
         else:
             qual = "est." if problem.solve_time_estimated else "measured"
             tail = f"solve_time={secs}s ({qual})"
+        cat_str = problem.category
+        if problem.subcategory:
+            cat_str = f"{problem.category} / {problem.subcategory}"
         return {
             "content": [
                 {
                     "type": "text",
                     "text": (
                         f"Saved {problem.id} "
-                        f"(category={problem.category}, {tail})"
+                        f"(category={cat_str}, {tail})"
                     ),
                 }
             ]

@@ -20,14 +20,16 @@ def record_category_edit(
     solution: str,
     from_category: str,
     to_category: str,
+    from_subcategory: str = "",
+    to_subcategory: str = "",
 ) -> None:
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO category_edits
                 (problem_id, problem_text, solution, from_category,
-                 to_category, edited_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                 to_category, from_subcategory, to_subcategory, edited_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 problem_id,
@@ -35,24 +37,31 @@ def record_category_edit(
                 solution or "",
                 (from_category or "").lower(),
                 (to_category or "").lower(),
+                (from_subcategory or "").lower(),
+                (to_subcategory or "").lower(),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
 
 
 def category_edit_examples(
-    from_category: str, limit: int = 5
+    from_category: str,
+    limit: int = 5,
+    from_subcategory: str | None = None,
 ) -> list[dict]:
-    """Most recent user edits that moved a problem AWAY from `from_category`."""
+    """Most recent user edits that moved a problem AWAY from `from_category`
+    (and, if provided, `from_subcategory`)."""
+    sql = (
+        "SELECT problem_text, solution, from_category, to_category, "
+        "from_subcategory, to_subcategory, edited_at "
+        "FROM category_edits WHERE from_category = ?"
+    )
+    params: list = [(from_category or "").lower()]
+    if from_subcategory:
+        sql += " AND from_subcategory = ?"
+        params.append(from_subcategory.lower())
+    sql += " ORDER BY edited_at DESC LIMIT ?"
+    params.append(max(1, int(limit)))
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT problem_text, solution, from_category, to_category, edited_at
-            FROM category_edits
-            WHERE from_category = ?
-            ORDER BY edited_at DESC
-            LIMIT ?
-            """,
-            ((from_category or "").lower(), max(1, int(limit))),
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
