@@ -64,6 +64,10 @@
       .replace(/>/g, "&gt;");
   }
 
+  function titleCase(s) {
+    return String(s || "").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   function difficultyLabel(p) {
     if (p.solve_time_seconds == null) return "";
     const prefix = p.solve_time_estimated ? "~" : "";
@@ -79,7 +83,6 @@
     div.dataset.subcategory = (p.subcategory || "").toLowerCase();
     div.dataset.solveTime = p.solve_time_seconds == null ? "" : p.solve_time_seconds;
 
-    const titleCase = s => String(s || "").replace(/\b\w/g, c => c.toUpperCase());
     const dlabel = difficultyLabel(p);
     const catRaw = p.category || "";
     const subRaw = p.subcategory || "";
@@ -294,58 +297,113 @@
     if (!CAN_UPLOAD) return;
     const span = ev.target.closest("h3 .editable");
     if (!span) return;
-    if (span.querySelector("input")) return;
-    startInlineCategoryEdit(span);
+    const problemEl = span.closest(".problem");
+    if (!problemEl || problemEl.classList.contains("editing-category")) return;
+    startCategoryEditor(problemEl);
   });
 
-  function startInlineCategoryEdit(span) {
-    const problemEl = span.closest(".problem");
-    if (!problemEl) return;
-    const field = span.dataset.field;
-    const currentValue = span.dataset.value || "";
-    const originalHtml = span.innerHTML;
+  const NEW_SENTINEL = "__new__";
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "inline-edit-input";
-    input.value = currentValue;
-    input.setAttribute("list", field === "category" ? "all-categories" : "all-subcategories");
-    input.autocomplete = "off";
+  function startCategoryEditor(problemEl) {
+    const h3 = problemEl.querySelector("h3");
+    if (!h3) return;
+    const catSpan = h3.querySelector('[data-field="category"]');
+    const subSpan = h3.querySelector('[data-field="subcategory"]');
+    const currentCat = catSpan ? (catSpan.dataset.value || "") : "";
+    const currentSub = subSpan ? (subSpan.dataset.value || "") : "";
+    const originalHeadingHtml = h3.innerHTML;
 
-    span.classList.add("editing");
-    span.innerHTML = "";
-    span.appendChild(input);
-    input.focus();
-    input.select();
+    problemEl.classList.add("editing-category");
 
-    let finalized = false;
-    const restore = () => {
-      finalized = true;
-      span.classList.remove("editing");
-      span.innerHTML = originalHtml;
-    };
+    const editor = document.createElement("span");
+    editor.className = "cat-editor";
 
-    const commit = async () => {
-      if (finalized) return;
-      const newValue = input.value.trim().toLowerCase();
-      if (newValue === currentValue.toLowerCase()) { restore(); return; }
-      if (field === "category" && !newValue) { restore(); return; }
+    let catCtrl = buildCategoryControl(currentCat);
+    let subCtrl = buildSubcategoryControl(readValue(catCtrl), currentSub);
 
-      finalized = true;
-      const catSpanCur = problemEl.querySelector('h3 [data-field="category"]');
-      const subSpanCur = problemEl.querySelector('h3 [data-field="subcategory"]');
-      const payload = {
-        category: field === "category" ? newValue : (catSpanCur ? catSpanCur.dataset.value : ""),
-        subcategory: field === "subcategory" ? newValue : (subSpanCur ? subSpanCur.dataset.value : ""),
-      };
-      span.classList.remove("editing");
-      span.textContent = "Saving…";
+    catCtrl.addEventListener("change", onCategoryChange);
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "cat-editor-save";
+    saveBtn.textContent = "Save";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "cat-editor-cancel";
+    cancelBtn.textContent = "Cancel";
+
+    const statusEl = document.createElement("span");
+    statusEl.className = "cat-editor-status";
+
+    editor.appendChild(catCtrl);
+    editor.appendChild(document.createTextNode(" / "));
+    editor.appendChild(subCtrl);
+    editor.appendChild(saveBtn);
+    editor.appendChild(cancelBtn);
+    editor.appendChild(statusEl);
+
+    h3.innerHTML = "";
+    h3.appendChild(editor);
+    focusControl(catCtrl);
+
+    function onCategoryChange() {
+      if (catCtrl.tagName === "SELECT" && catCtrl.value === NEW_SENTINEL) {
+        const inp = makeFreeformInput("all-categories", "new category", "");
+        catCtrl.replaceWith(inp);
+        catCtrl = inp;
+        focusControl(catCtrl);
+      }
+      const newCatValue = readValue(catCtrl);
+      const preservedSub = readValue(subCtrl);
+      const valid = subcategoryMap[newCatValue] || [];
+      const keep = preservedSub === "" || valid.indexOf(preservedSub) !== -1;
+      const replacement = buildSubcategoryControl(newCatValue, keep ? preservedSub : "");
+      subCtrl.replaceWith(replacement);
+      subCtrl = replacement;
+    }
+
+    editor.addEventListener("change", (e) => {
+      if (e.target === subCtrl && subCtrl.tagName === "SELECT" && subCtrl.value === NEW_SENTINEL) {
+        const inp = makeFreeformInput("all-subcategories", "subcategory (blank for none)", "");
+        subCtrl.replaceWith(inp);
+        subCtrl = inp;
+        focusControl(subCtrl);
+      }
+    });
+
+    editor.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); cancel(); }
+      else if (e.key === "Enter") { e.preventDefault(); save(); }
+    });
+
+    cancelBtn.addEventListener("click", cancel);
+    saveBtn.addEventListener("click", save);
+
+    function cancel() {
+      h3.innerHTML = originalHeadingHtml;
+      problemEl.classList.remove("editing-category");
+    }
+
+    async function save() {
+      const newCat = readValue(catCtrl);
+      const newSub = readValue(subCtrl);
+      if (!newCat) { statusEl.textContent = "Category required."; return; }
+      if (newCat === currentCat.toLowerCase() && newSub === currentSub.toLowerCase()) {
+        cancel();
+        return;
+      }
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      catCtrl.disabled = true;
+      subCtrl.disabled = true;
+      statusEl.textContent = "Saving…";
 
       try {
         const resp = await fetch(`/api/problems/${encodeURIComponent(problemEl.dataset.id)}/category`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ category: newCat, subcategory: newSub }),
         });
         if (!resp.ok) {
           let msg = `HTTP ${resp.status}`;
@@ -354,36 +412,89 @@
         }
         const data = await resp.json();
         if (data.problem) {
-          const cat = data.problem.category;
-          const sub = data.problem.subcategory || "";
-          if (cat && knownCategories.indexOf(cat) === -1) {
-            knownCategories.push(cat); knownCategories.sort();
-          }
-          if (cat) {
-            const subs = subcategoryMap[cat] || (subcategoryMap[cat] = []);
-            if (sub && subs.indexOf(sub) === -1) { subs.push(sub); subs.sort(); }
-          }
-          if (sub && knownSubcategories.indexOf(sub) === -1) {
-            knownSubcategories.push(sub); knownSubcategories.sort();
-          }
+          recordKnownCategoryPair(data.problem.category, data.problem.subcategory || "");
           refreshCategoryDatalist();
           refreshSubcategoryDatalist();
           refreshSubcategorySelect();
           const fresh = renderProblem(data.problem);
           problemEl.replaceWith(fresh);
           renderMath(fresh);
+        } else {
+          cancel();
         }
       } catch (e) {
-        alert(`Failed to update: ${e.message}`);
-        span.innerHTML = originalHtml;
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        catCtrl.disabled = false;
+        subCtrl.disabled = false;
+        statusEl.textContent = `Failed: ${e.message}`;
       }
-    };
+    }
+  }
 
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-      else if (e.key === "Escape") { e.preventDefault(); restore(); }
-    });
-    input.addEventListener("blur", commit);
+  function readValue(ctrl) {
+    const v = (ctrl.value || "").trim().toLowerCase();
+    return v === NEW_SENTINEL ? "" : v;
+  }
+
+  function focusControl(ctrl) {
+    ctrl.focus();
+    if (ctrl.tagName === "INPUT") ctrl.select();
+  }
+
+  function buildCategoryControl(currentValue) {
+    const sel = document.createElement("select");
+    sel.className = "cat-editor-cat";
+    const cats = knownCategories.slice();
+    if (currentValue && cats.indexOf(currentValue) === -1) cats.push(currentValue);
+    cats.sort();
+    cats.forEach(c => sel.appendChild(makeOption(c, titleCase(c), c === currentValue)));
+    sel.appendChild(makeOption(NEW_SENTINEL, "+ Add new category…", false));
+    return sel;
+  }
+
+  function buildSubcategoryControl(category, currentValue) {
+    const sel = document.createElement("select");
+    sel.className = "cat-editor-sub";
+    sel.appendChild(makeOption("", "(none)", !currentValue));
+    const subs = (subcategoryMap[category] || []).slice();
+    if (currentValue && subs.indexOf(currentValue) === -1) subs.push(currentValue);
+    subs.sort();
+    subs.forEach(s => sel.appendChild(makeOption(s, titleCase(s), s === currentValue)));
+    sel.appendChild(makeOption(NEW_SENTINEL, "+ Add new subcategory…", false));
+    return sel;
+  }
+
+  function makeFreeformInput(datalistId, placeholder, value) {
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "cat-editor-freeform";
+    inp.value = value;
+    inp.placeholder = placeholder;
+    inp.autocomplete = "off";
+    inp.setAttribute("list", datalistId);
+    return inp;
+  }
+
+  function makeOption(value, label, selected) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (selected) opt.selected = true;
+    return opt;
+  }
+
+  function recordKnownCategoryPair(cat, sub) {
+    if (cat && knownCategories.indexOf(cat) === -1) {
+      knownCategories.push(cat); knownCategories.sort();
+    }
+    if (cat) {
+      const subs = subcategoryMap[cat] || (subcategoryMap[cat] = []);
+      if (sub && subs.indexOf(sub) === -1) { subs.push(sub); subs.sort(); }
+    }
+    if (sub && knownSubcategories.indexOf(sub) === -1) {
+      knownSubcategories.push(sub); knownSubcategories.sort();
+    }
   }
 
   function refreshCategoryDatalist() {
