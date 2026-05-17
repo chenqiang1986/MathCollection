@@ -26,6 +26,11 @@ SOLVER_CONCURRENCY = 4
 ORCHESTRATOR_SYSTEM_PROMPT = (PROMPTS_DIR / "orchestrator.md").read_text()
 
 
+class ProcessImageInput(NamedTuple):
+    image_path: Path
+    source_image: str | None
+
+
 class ProcessImageResult(NamedTuple):
     saved: list[storage.Problem]
     summary: str
@@ -125,13 +130,59 @@ async def _process_image_async(
     return ProcessImageResult(saved=saved, summary=summary)
 
 
+async def _process_images_async(
+    inputs: list[ProcessImageInput],
+    with_solution: bool = True,
+) -> ProcessImageResult:
+    """Process each file sequentially in its own agent session. Files are
+    unrelated, so we never share a parse/solve session across them; a
+    failure on one file does not abort the others."""
+    all_saved: list[storage.Problem] = []
+    per_file_summaries: list[str] = []
+    for idx, inp in enumerate(inputs, start=1):
+        label = inp.source_image or inp.image_path.name
+        print(
+            f"[orchestrator] file {idx}/{len(inputs)}: {label}",
+            flush=True,
+        )
+        try:
+            result = await _process_image_async(
+                inp.image_path, inp.source_image, with_solution=with_solution
+            )
+        except Exception as e:
+            print(
+                f"[orchestrator] file {idx}/{len(inputs)} failed: {e}",
+                flush=True,
+            )
+            per_file_summaries.append(f"{label}: error ({e})")
+            continue
+        all_saved.extend(result.saved)
+        per_file_summaries.append(f"{label}: {result.summary}")
+
+    summary = (
+        f"Processed {len(inputs)} file(s); saved {len(all_saved)} "
+        f"problem(s) total."
+    )
+    if per_file_summaries:
+        summary += " | " + " | ".join(per_file_summaries)
+    return ProcessImageResult(saved=all_saved, summary=summary)
+
+
+def process_images(
+    inputs: list[ProcessImageInput],
+    with_solution: bool = True,
+) -> ProcessImageResult:
+    return asyncio.run(
+        _process_images_async(inputs, with_solution=with_solution)
+    )
+
+
 def process_image(
     image_path: Path,
     source_image: str | None = None,
     with_solution: bool = True,
 ) -> ProcessImageResult:
-    return asyncio.run(
-        _process_image_async(
-            Path(image_path), source_image, with_solution=with_solution
-        )
+    return process_images(
+        [ProcessImageInput(image_path=Path(image_path), source_image=source_image)],
+        with_solution=with_solution,
     )

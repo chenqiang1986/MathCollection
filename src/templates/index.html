@@ -22,7 +22,7 @@
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload an image of one or more math problems. The agent will extract, classify, solve, and save each one.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload one or more images or PDFs of math problems. The agent will extract, classify, solve, and save each one. Multiple files are processed one at a time.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -41,8 +41,8 @@
   {% endif %}
 
   <form id="upload-form" action="{{ url_for('uploads.upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in or not can_upload %}style="display:none"{% endif %}>
-    <label>Image or PDF (PNG, JPEG, GIF, WebP, PDF, max 10 MB):</label><br>
-    <input type="file" name="image" accept="image/*,application/pdf,.pdf" required>
+    <label>Images or PDFs (PNG, JPEG, GIF, WebP, PDF, max 10 MB total):</label><br>
+    <input type="file" name="images" accept="image/*,application/pdf,.pdf" multiple required>
     <label style="display:block; margin-top:0.5rem;">
       <input type="checkbox" name="with_solution" value="1">
       Generate step-by-step solution
@@ -50,7 +50,7 @@
     <button type="submit" id="process-btn">Process</button>
     <div id="progress-wrap" aria-live="polite">
       <div class="progress-bar"><div></div></div>
-      <div class="progress-text">Processing image — this can take a moment…</div>
+      <div class="progress-text">Processing — this can take a moment…</div>
     </div>
   </form>
 
