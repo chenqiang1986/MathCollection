@@ -70,10 +70,16 @@ process_image(image_path, source_image, with_solution)
                    └─ storage.save_problem(...)  →  Problem
 ```
 
-After the inner query returns, when `with_solution=True` the solver patches
-`solve_time_seconds` to the measured elapsed time and sets
-`solve_time_estimated=False`. With `with_solution=False`, the model's own
-estimate is kept and `solve_time_estimated=True`.
+Time fields follow this convention: `solve_time_seconds` stores the real
+measured elapsed time (NULL until a solution is produced) and
+`solve_time_estimated` stores the model's pre-solve estimate in integer
+seconds (0 means no estimate). Both can co-exist so estimate-vs-real can
+be compared later. When `with_solution=True` the solver patches
+`solve_time_seconds` to the measured elapsed time after the inner query
+returns; when `with_solution=False` the model writes `solve_time_estimated`
+itself via `save_problem`. Refine, when it produces a solution on a
+problem that had no prior real solve time, also patches
+`solve_time_seconds` to the refine elapsed time.
 
 ## Conventions
 
@@ -95,10 +101,12 @@ estimate is kept and `solve_time_estimated=True`.
   by the dispatch loop, which logs them and skips that problem — the
   batch as a whole still returns.
 - `save_problem` schema:
-  - `with_solution=True`: `{problem_text, category, solution}` —
+  - `with_solution=True`: `{problem_text, category, subcategory, solution}` —
     `solve_time_seconds` is filled in afterwards from measured wall-clock.
-  - `with_solution=False`: `{problem_text, category, solve_time_seconds}` —
-    Claude's own estimate.
+  - `with_solution=False`: `{problem_text, category, subcategory,
+    solve_time_estimated}` — Claude's own integer-seconds estimate; the
+    real `solve_time_seconds` stays NULL until a later refine produces a
+    solution.
 - Every assistant / tool / result message is logged via `log_message` for
   debuggability. Keep the truncation budget small (300 chars) so logs stay
   readable.

@@ -20,16 +20,15 @@ path to a cropped figure image. Do all of the following, then stop:
    them explicitly in the solution text — e.g. "let $M$ be the midpoint of
    $BC$" — so a reader can draw them on the figure themselves.
 {%- else -%}
-2. Estimate `solve_time_seconds`: how long, in seconds, you would take to
-   produce a complete step-by-step solution to this problem if asked.
+2. Estimate `solve_time_estimated`: how long, in seconds, you would take
+   to produce a complete step-by-step solution to this problem if asked.
    Calibrate to a typical Claude Sonnet response time:
    - ~5 s — trivial single-step arithmetic;
    - ~20 s — routine high-school algebra or geometry;
    - ~60 s — a multi-step contest problem;
    - ~180 s+ — a hard olympiad or advanced undergraduate problem;
    - several hundred seconds — research-level.
-   Use a single non-negative number (integer or float). Do NOT solve the
-   problem.
+   Use a single non-negative integer. Do NOT solve the problem.
 {%- endif %}
 3. Call `lookup_category_edits` EXACTLY ONCE with your tentative `category`
    and `subcategory` from step 1. The tool returns past user corrections
@@ -43,7 +42,7 @@ path to a cropped figure image. Do all of the following, then stop:
    text, unchanged), the final `category`, `subcategory`, and `solution`.
 {%- else %}
    text, unchanged), the final `category`, `subcategory`, and
-   `solve_time_seconds`.
+   `solve_time_estimated`.
 {%- endif %}
 
 {% if with_solution -%}

@@ -68,4 +68,23 @@ def _backfill_problems() -> None:
                 data = json.loads(p.read_text())
             except json.JSONDecodeError:
                 continue
+            if _migrate_solve_time(data):
+                p.write_text(json.dumps(data, indent=2, ensure_ascii=False))
             _upsert_index_row(conn, Problem.from_dict(data))
+
+
+def _migrate_solve_time(data: dict) -> bool:
+    """Convert legacy `solve_time_estimated: bool` records to the new
+    convention where `solve_time_estimated` is an integer seconds estimate
+    and `solve_time_seconds` is reserved for real measured elapsed time.
+    Returns True when the dict was modified."""
+    est = data.get("solve_time_estimated")
+    if not isinstance(est, bool):
+        return False
+    if est:
+        st = data.get("solve_time_seconds")
+        data["solve_time_estimated"] = int(round(st)) if st is not None else 0
+        data["solve_time_seconds"] = None
+    else:
+        data["solve_time_estimated"] = 0
+    return True

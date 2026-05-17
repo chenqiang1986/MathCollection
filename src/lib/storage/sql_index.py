@@ -41,7 +41,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             (problem.category or "").lower(),
             (problem.subcategory or "").lower(),
             problem.solve_time_seconds,
-            1 if problem.solve_time_estimated else 0,
+            int(problem.solve_time_estimated or 0),
             problem.created_at,
             problem.source_exam or "Unknown",
             problem.year or "Unknown",

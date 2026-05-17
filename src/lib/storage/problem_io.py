@@ -28,7 +28,7 @@ def save_problem(
     figure_image: str | None = None,
     figure_bbox: list[float] | None = None,
     solve_time_seconds: float | None = None,
-    solve_time_estimated: bool = False,
+    solve_time_estimated: int = 0,
 ) -> Problem:
     problem = Problem(
         id=str(uuid.uuid4()),

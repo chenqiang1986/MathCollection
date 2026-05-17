@@ -97,7 +97,6 @@ async def _run_inner_solver(
         problem = storage.update_problem(
             problem.id,
             solve_time_seconds=round(elapsed, 2),
-            solve_time_estimated=False,
         )
     return problem
 

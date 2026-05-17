@@ -21,8 +21,11 @@ override strings in Python.**
   [../lib/agent/problem_store.py](../lib/agent/problem_store.py):
   - `with_solution=True` → solver writes a `solution`; tool takes
     `{problem_text, category, solution}`.
-  - `with_solution=False` → solver estimates `solve_time_seconds`; tool takes
-    `{problem_text, category, solve_time_seconds}`.
+  - `with_solution=False` → solver estimates `solve_time_estimated`
+    (integer seconds); tool takes
+    `{problem_text, category, solve_time_estimated}`. Real
+    `solve_time_seconds` stays NULL until a later refine produces a
+    solution.
   Both branches must also instruct the solver to call
   `lookup_category_edits` before `save_problem` — the save tool refuses the
   first call until the lookup has been invoked.

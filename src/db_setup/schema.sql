@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS problems (
     id TEXT PRIMARY KEY,
     filename TEXT NOT NULL,
     category TEXT NOT NULL,
+    -- solve_time_seconds: real measured elapsed seconds (NULL until a
+    --   solution is produced).
+    -- solve_time_estimated: agent's pre-solve estimate in seconds (0 means
+    --   no estimate). Both can co-exist to compare estimate vs. real.
     solve_time_seconds REAL,
     solve_time_estimated INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
@@ -59,4 +63,4 @@ CREATE INDEX IF NOT EXISTS idx_edits_from_sub ON category_edits(from_category, f
 
 -- Bump the literal below whenever you add a new ALTER above. The next
 -- startup will detect DATA_VERSION < SCHEMA_VERSION and trigger a backfill.
-UPDATE schema_version SET schema_version = 3;
+UPDATE schema_version SET schema_version = 4;

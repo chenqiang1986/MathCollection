@@ -240,7 +240,15 @@ async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
             f"Refine expected exactly one action, got {len(chosen)} "
             f"for problem {problem.id}"
         )
-    return chosen[0]
+    updated = chosen[0]
+    # If the problem had no real solve time before this refine, treat the
+    # refine elapsed as the first real solve (only meaningful when refine
+    # actually produced a solution).
+    if problem.solve_time_seconds is None and updated.solution:
+        updated = storage.update_problem(
+            updated.id, solve_time_seconds=round(elapsed, 2)
+        )
+    return updated
 
 
 def refine_problem(problem: storage.Problem, hint: str = "") -> storage.Problem:

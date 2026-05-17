@@ -45,15 +45,15 @@ def build_problem_store(
             "Persist a single math problem to storage without a solution. "
             "Call once per distinct problem, AFTER `lookup_category_edits` "
             "has been called for your chosen category/subcategory. "
-            "`solve_time_seconds` is your own estimate of how long you "
-            "would take to solve the problem step by step (in seconds, "
-            "calibrated to typical Sonnet response time)."
+            "`solve_time_estimated` is your own estimate of how long you "
+            "would take to solve the problem step by step (integer "
+            "seconds, calibrated to typical Sonnet response time)."
         )
         save_schema = {
             "problem_text": str,
             "category": str,
             "subcategory": str,
-            "solve_time_seconds": float,
+            "solve_time_estimated": int,
         }
 
     @tool("save_problem", save_description, save_schema)
@@ -73,7 +73,7 @@ def build_problem_store(
                 ],
                 "is_error": True,
             }
-        estimated_time = args.get("solve_time_seconds")
+        estimated_time = args.get("solve_time_estimated")
         problem = storage.save_problem(
             problem_text=args["problem_text"],
             category=args["category"],
@@ -85,10 +85,9 @@ def build_problem_store(
             year=year,
             figure_image=figure_image,
             figure_bbox=figure_bbox,
-            solve_time_seconds=(
-                float(estimated_time) if estimated_time is not None else None
+            solve_time_estimated=(
+                int(round(float(estimated_time))) if estimated_time is not None else 0
             ),
-            solve_time_estimated=not with_solution,
         )
         saved.append(problem)
         return {

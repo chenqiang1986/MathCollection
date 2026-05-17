@@ -71,10 +71,18 @@
   }
 
   function difficultyLabel(p) {
-    if (p.solve_time_seconds == null) return "";
-    const prefix = p.solve_time_estimated ? "~" : "";
-    const suffix = p.solve_time_estimated ? " (est.)" : "";
-    return `${prefix}${p.solve_time_seconds.toFixed(1)}s${suffix}`;
+    const real = p.solve_time_seconds;
+    const est = p.solve_time_estimated;
+    if (real != null && est) {
+      return `${real.toFixed(1)}s (est. ${est}s)`;
+    }
+    if (real != null) {
+      return `${real.toFixed(1)}s`;
+    }
+    if (est) {
+      return `~${est}s (est.)`;
+    }
+    return "";
   }
 
   function renderProblem(p) {

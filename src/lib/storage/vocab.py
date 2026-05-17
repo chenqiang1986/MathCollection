@@ -14,7 +14,7 @@ class Problem:
     category: str
     subcategory: str = ""
     solve_time_seconds: float | None = None
-    solve_time_estimated: bool = False
+    solve_time_estimated: int = 0
     solution: str = ""
     source_image: str | None = None
     source_page: int | None = None
