@@ -6,7 +6,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image
 
-from lib.storage import UPLOADS_DIR, figures_dir
+from lib.storage import figures_dir, raw_upload_path
 
 FIGURE_PADDING = 0.015  # 1.5% margin on each side of the model's bbox
 PDF_RENDER_SCALE = 3.0  # 3× the PDF's 72-DPI base (≈216 DPI) for crop quality
@@ -48,9 +48,10 @@ def save_figure(
     rotation: int = 0,
     page: int = 1,
 ) -> str:
-    """Crop a normalized [x0,y0,x1,y1] region from uploads/<source_image>,
-    optionally rotate clockwise by `rotation` (one of 0/90/180/270), and
-    save as a PNG under data/<user>/figures/. Returns the saved filename.
+    """Crop a normalized [x0,y0,x1,y1] region from
+    data/<user>/raw/<source_image>, optionally rotate clockwise by
+    `rotation` (one of 0/90/180/270), and save as a PNG under
+    data/<user>/figures/. Returns the saved filename.
 
     `bbox` values are in [0,1] in the source's frame (per-page for PDFs);
     a small padding is added before clipping. `page` is 1-indexed and is
@@ -73,7 +74,7 @@ def save_figure(
     x1 = min(1.0, x1 + FIGURE_PADDING)
     y1 = min(1.0, y1 + FIGURE_PADDING)
 
-    src_path = UPLOADS_DIR / source_image
+    src_path = raw_upload_path(source_image)
     if not src_path.exists():
         raise FileNotFoundError(f"source image not found: {src_path}")
 

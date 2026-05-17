@@ -1,7 +1,6 @@
 """Upload form handler and per-user figure serving."""
 
 import uuid
-from pathlib import Path
 
 from flask import (
     Blueprint,
@@ -18,7 +17,6 @@ from werkzeug.utils import secure_filename
 from .auth import login_required, upload_allowed_required
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 bp = Blueprint("uploads", __name__)
 
@@ -43,7 +41,9 @@ def upload():
         return redirect(url_for("pages.index"))
 
     safe_name = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
-    saved_path = UPLOAD_DIR / safe_name
+    raw_dir = storage.raw_uploads_dir()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    saved_path = raw_dir / safe_name
     saved_path.write_bytes(image_bytes)
 
     with_solution = bool(request.form.get("with_solution"))

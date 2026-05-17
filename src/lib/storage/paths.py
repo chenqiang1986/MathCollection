@@ -6,7 +6,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = REPO_ROOT / "data"
-UPLOADS_DIR = REPO_ROOT / "uploads"
 
 _CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("current_user")
 _EMAIL_SAFE_RE = re.compile(r"[^a-z0-9@._\-+]")
@@ -54,6 +53,14 @@ def figures_dir() -> Path:
 
 def figure_path(filename: str) -> Path:
     return figures_dir() / filename
+
+
+def raw_uploads_dir() -> Path:
+    return user_dir() / "raw"
+
+
+def raw_upload_path(filename: str) -> Path:
+    return raw_uploads_dir() / filename
 
 
 def index_path() -> Path:

@@ -32,6 +32,22 @@ solver agents.
   returns `is_error` until then. This replaces the older post-save
   reviewer agent. Refine uses its own update-only store and intentionally
   skips this check.
+- [refine.py](refine.py) — agent for in-place correction of an existing
+  saved problem. Driven by a single LLM call whose system prompt is
+  [../../prompts/refine.md](../../prompts/refine.md) and whose tools are
+  three structured-output actions (one MCP server, `refine_store`):
+  `resolve_with_hint` (rewrites `category`/`subcategory`/`solution`),
+  `update_figure_bbox` (re-crops the figure via `figures.save_figure` and
+  rewrites `figure_image`/`figure_bbox`; deletes the old crop), and
+  `update_problem_text` (rewrites `problem_text`). The agent picks
+  exactly one based on the user's free-form request — this is the
+  decision boundary, not a Python heuristic. Empty user messages raise
+  before any LLM call. Bbox and text actions do NOT re-solve; the user
+  triggers a follow-up `resolve_with_hint` if they want the solution
+  updated. `Read` is allowed when either `source_image` or
+  `figure_image` is present; the source's filesystem path and the
+  problem's `source_page` are surfaced in the prompt so the model can
+  re-crop/re-transcribe.
 - [util.py](util.py) — shared constants and the `log_message` printer used
   for tracing every assistant / tool / result message.
 
@@ -64,9 +80,10 @@ estimate is kept and `solve_time_estimated=True`.
 - `MODEL = "claude-sonnet-4-6"` lives in [util.py](util.py); don't hardcode it
   elsewhere.
 - `ORCHESTRATOR_MAX_TURNS = 4` (Read + report_problems + a small slack
-  margin), `SOLVER_MAX_TURNS = 7`, `SOLVER_CONCURRENCY = 4`. Bump only
-  with a reason — runaway tool loops or rate-limit pressure are the
-  failure modes.
+  margin), `SOLVER_MAX_TURNS = 7`, `SOLVER_CONCURRENCY = 4`,
+  `REFINE_MAX_TURNS = 8` (one extra for the routing decision plus an
+  optional Read of source + figure). Bump only with a reason — runaway
+  tool loops or rate-limit pressure are the failure modes.
 - The orchestrator's allowed tools are exactly
   `["Read", "mcp__orchestrator__report_problems"]`. The inner solver's are
   `["mcp__problem_store__save_problem",

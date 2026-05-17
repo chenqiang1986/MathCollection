@@ -21,9 +21,10 @@ HTTP-facing lives here.
   `sample` (random for print-to-PDF), `stats/categories`, `stats/difficulty`.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the
-  raw image to `uploads/`, calls `agent.process_image(...)`, re-renders
-  the index with the result summary. Also serves per-user figure PNGs at
-  `/figures/<filename>`.
+  raw image under `data/<email>/raw/` (via `storage.raw_uploads_dir()`
+  so it lands on the GCS-Fuse-mounted volume in production), calls
+  `agent.process_image(...)`, re-renders the index with the result
+  summary. Also serves per-user figure PNGs at `/figures/<filename>`.
 
 ## Conventions
 
@@ -55,7 +56,8 @@ HTTP-facing lives here.
   which is whitelisted because manual category corrections feed the
   `lookup_category_edits` tool used by the inner solver (see
   [../lib/agent/problem_store.py](../lib/agent/problem_store.py)).
-- Don't read uploads from the request path; use `UPLOAD_DIR` (resolved
-  relative to the repo root) so behavior is consistent across blueprints.
+- Don't read uploads from the request path; use
+  `storage.raw_uploads_dir()` / `storage.raw_upload_path(name)` so the
+  per-user GCS-Fuse-mounted layout is consistent across blueprints.
 - Don't import the agent at module top-level in places that don't need it;
   it pulls in `claude_agent_sdk` which is heavy.

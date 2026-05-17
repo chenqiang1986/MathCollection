@@ -138,8 +138,8 @@
     if (CAN_UPLOAD) {
       const ctaLabel = p.solution ? "Refine with hint" : "Generate solution with hint";
       html += `<div class="refine-panel" hidden>` +
-        `<label class="refine-label" for="refine-hint-${p.id}">Optional hint for Claude (e.g. "use the inscribed angle theorem", "try induction"):</label>` +
-        `<textarea class="refine-hint" id="refine-hint-${p.id}" rows="2" placeholder="Leave blank to just retry."></textarea>` +
+        `<label class="refine-label" for="refine-hint-${p.id}">Tell Claude what to fix — it will pick one of: re-solve with your hint, re-crop the figure, or re-transcribe the problem text.</label>` +
+        `<textarea class="refine-hint" id="refine-hint-${p.id}" rows="2" placeholder='e.g. "use the inscribed angle theorem", "the figure is cut off on the right", "the problem says 71 not 17"'></textarea>` +
         `<div class="refine-actions">` +
           `<button type="button" class="refine-submit">${ctaLabel}</button>` +
           `<button type="button" class="refine-cancel">Cancel</button>` +
@@ -575,6 +575,11 @@
     const statusEl = panel.querySelector(".refine-status");
     const refineBtn = problemEl.querySelector(".refine-btn");
     const hint = (hintEl && hintEl.value || "").trim();
+    if (!hint) {
+      statusEl.textContent = "Please describe what to fix before submitting.";
+      if (hintEl) hintEl.focus();
+      return;
+    }
 
     submitBtn.disabled = true;
     cancelBtn.disabled = true;

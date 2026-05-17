@@ -163,6 +163,8 @@ def refine_problem(problem_id):
         return jsonify({"error": "not found"}), 404
     payload = request.get_json(silent=True) or {}
     hint = (payload.get("hint") or "").strip()
+    if not hint:
+        return jsonify({"error": "hint is required"}), 400
     try:
         updated = agent.refine_problem(problem, hint=hint)
     except Exception as e:

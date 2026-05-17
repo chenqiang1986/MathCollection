@@ -13,8 +13,9 @@ Per-user, file-backed problem store with a derived SQLite index.
 - [paths.py](paths.py) — user-context binding (`set_current_user`,
   `reset_current_user`) and per-user path helpers
   (`user_dir`, `problems_dir`, `figures_dir`, `index_path`,
-  `figure_path`). All other storage modules call these — never hardcode a
-  path.
+  `figure_path`, `raw_uploads_dir`, `raw_upload_path`). All paths live
+  under `data/<email>/` so the GCS-Fuse mount on Cloud Run persists
+  them; never hardcode a path or write outside `data/`.
 - [problem_io.py](problem_io.py) — JSON read/write for problem records.
   `save_problem` / `update_problem` both mirror into the SQLite index.
   `delete_problem` removes the JSON, the figure (if any), and the index row.

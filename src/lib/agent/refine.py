@@ -1,7 +1,9 @@
-"""Refine an existing saved problem: re-run the solver against the stored
-problem text (plus an optional user hint) and update the same record
-in-place, keeping its id."""
+"""Refine an existing saved problem. The agent reads the user's free-form
+request and picks exactly one of three actions: re-solve with a hint,
+re-crop the figure with a corrected bbox, or re-transcribe the problem
+text from the source. Updates the existing record in-place."""
 
+import asyncio
 import time
 
 import figures
@@ -11,106 +13,219 @@ from claude_agent_sdk import (
     query,
     tool,
 )
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader
 from lib import storage
 
 from .util import MODEL, PROMPTS_DIR, log_message
 
-REFINE_MAX_TURNS = 6
+REFINE_MAX_TURNS = 8
 
-_SOLVER_TEMPLATE = Template((PROMPTS_DIR / "solver.md").read_text())
+_JINJA = Environment(
+    loader=FileSystemLoader(PROMPTS_DIR),
+    keep_trailing_newline=True,
+)
+_REFINE_TEMPLATE = _JINJA.get_template("refine.md")
 
 
-def _build_update_store(
-    problem_id: str,
-    updated: list[storage.Problem],
+def _build_refine_store(
+    problem: storage.Problem,
+    chosen: list[storage.Problem],
 ):
-    """MCP server that exposes `save_problem` but routes to update_problem,
-    so the solver's existing tool-calling contract is preserved while the
-    target record keeps its id and created_at."""
+    """MCP server with three structured-output tools — the agent calls
+    exactly one to declare its chosen refine action. Each tool persists
+    the corresponding change and appends the updated record."""
 
     @tool(
-        "save_problem",
+        "resolve_with_hint",
         (
-            "Persist the refined solution for the math problem currently "
-            "under review. Call exactly once."
+            "Action 1: produce a better solution informed by the user's "
+            "hint. Provide the final `solution` plus `category` and "
+            "`subcategory` (which may also change). Call this when the "
+            "user is asking for a different solution approach, a "
+            "corrected answer, or a clearer explanation."
         ),
         {
-            "problem_text": str,
             "category": str,
             "subcategory": str,
             "solution": str,
         },
     )
-    async def save_problem(args: dict) -> dict:
-        problem = storage.update_problem(
-            problem_id,
+    async def resolve_with_hint(args: dict) -> dict:
+        updated = storage.update_problem(
+            problem.id,
             category=args["category"],
             subcategory=args.get("subcategory", ""),
             solution=args.get("solution", ""),
         )
-        updated.append(problem)
+        chosen.append(updated)
         return {
             "content": [
-                {"type": "text", "text": f"Updated problem {problem.id}."}
+                {"type": "text", "text": f"Re-solved problem {updated.id}."}
+            ]
+        }
+
+    @tool(
+        "update_figure_bbox",
+        (
+            "Action 2: re-crop the figure with a corrected bounding box. "
+            "Provide `figure_bbox` as normalized [x0, y0, x1, y1] in "
+            "[0, 1] tightly around just the figure, `figure_rotation` "
+            "(clockwise degrees to upright the crop: 0/90/180/270), and "
+            "`figure_page` (1-indexed source page; 1 for non-PDF "
+            "sources). Read the original source image/PDF first. Does "
+            "not modify the solution."
+        ),
+        {
+            "figure_bbox": list,
+            "figure_rotation": int,
+            "figure_page": int,
+        },
+    )
+    async def update_figure_bbox(args: dict) -> dict:
+        if not problem.source_image:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Error: this problem has no source_image, so "
+                            "the figure cannot be re-cropped."
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+        bbox = [float(v) for v in args["figure_bbox"]]
+        rotation = int(args["figure_rotation"])
+        page = int(args["figure_page"])
+        new_figure = figures.save_figure(
+            problem.source_image, bbox, rotation=rotation, page=page
+        )
+        if problem.figure_image:
+            old = storage.figure_path(problem.figure_image)
+            if old.exists():
+                old.unlink()
+        updated = storage.update_problem(
+            problem.id,
+            figure_image=new_figure,
+            figure_bbox=bbox,
+        )
+        chosen.append(updated)
+        return {
+            "content": [
+                {"type": "text", "text": f"Re-cropped figure for {updated.id}."}
+            ]
+        }
+
+    @tool(
+        "update_problem_text",
+        (
+            "Action 3: replace the stored problem text with a re-read "
+            "transcription from the source image. Provide the corrected "
+            "`problem_text` verbatim (math wrapped in `$...$` or "
+            "`$$...$$`; literal currency `$` escaped as `\\$`). Read the "
+            "original source first. Does not modify the solution."
+        ),
+        {"problem_text": str},
+    )
+    async def update_problem_text(args: dict) -> dict:
+        if not problem.source_image:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Error: this problem has no source_image, so "
+                            "the problem text cannot be re-read."
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+        new_text = args["problem_text"].strip()
+        if not new_text:
+            return {
+                "content": [
+                    {"type": "text", "text": "Error: problem_text is empty."}
+                ],
+                "is_error": True,
+            }
+        updated = storage.update_problem(problem.id, problem_text=new_text)
+        chosen.append(updated)
+        return {
+            "content": [
+                {"type": "text", "text": f"Re-read text for {updated.id}."}
             ]
         }
 
     return create_sdk_mcp_server(
-        name="problem_store",
+        name="refine_store",
         version="1.0.0",
-        tools=[save_problem],
+        tools=[resolve_with_hint, update_figure_bbox, update_problem_text],
     )
 
 
 async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
-    figure_image = problem.figure_image
-    # `solve_time_seconds` is the difficulty signal. A hint or an earlier
-    # solution attempt both compromise that signal, so only treat this run as
-    # an unaided first solve (and overwrite the time) when neither is present.
-    update_solve_time = not problem.solution and not hint
-    updated: list[storage.Problem] = []
-    server = _build_update_store(problem.id, updated)
+    hint = (hint or "").strip()
+    if not hint:
+        raise ValueError("Refine requires a non-empty user message.")
 
-    allowed_tools = ["mcp__problem_store__save_problem"]
-    if figure_image:
+    chosen: list[storage.Problem] = []
+    server = _build_refine_store(problem, chosen)
+
+    allowed_tools = [
+        "mcp__refine_store__resolve_with_hint",
+        "mcp__refine_store__update_figure_bbox",
+        "mcp__refine_store__update_problem_text",
+    ]
+    if problem.source_image or problem.figure_image:
         allowed_tools.append("Read")
 
     options = ClaudeAgentOptions(
         model=MODEL,
-        system_prompt=_SOLVER_TEMPLATE.render(with_solution=True),
-        mcp_servers={"problem_store": server},
+        system_prompt=_REFINE_TEMPLATE.render(with_solution=True),
+        mcp_servers={"refine_store": server},
         allowed_tools=allowed_tools,
         max_turns=REFINE_MAX_TURNS,
     )
 
     prompt_parts = [
-        "Analyze and solve the following math problem, then call "
-        "`mcp__problem_store__save_problem` exactly once with the refined "
-        "`solution`. Use the original `problem_text` verbatim.",
-        f"Problem:\n{problem.problem_text}",
+        "Decide which one of the three refine actions matches the user's "
+        "request below, then call EXACTLY ONE corresponding tool. Do not "
+        "call more than one.",
+        f"User request:\n{hint}",
+        f"Current problem text:\n{problem.problem_text}",
     ]
     if problem.solution:
+        prompt_parts.append(f"Current solution:\n{problem.solution}")
+    prompt_parts.append(
+        f"Current category: {problem.category} / "
+        f"{problem.subcategory or '(none)'}"
+    )
+    if problem.figure_image:
+        fig_path = storage.figure_path(problem.figure_image)
         prompt_parts.append(
-            "An earlier solution attempt is provided below. The user found "
-            "it sub-optimal or unsatisfactory; produce a better solution "
-            "(shorter, clearer, or more elegant) rather than restating it.\n"
-            f"Earlier solution:\n{problem.solution}"
+            f"Current cropped figure: {fig_path}. Read it if you need to "
+            "judge whether the existing crop captured the right region."
         )
-    if hint:
+        if problem.figure_bbox:
+            prompt_parts.append(
+                f"Current figure_bbox (normalized): {problem.figure_bbox}"
+            )
+    if problem.source_image:
+        src_path = storage.raw_upload_path(problem.source_image)
         prompt_parts.append(
-            "The user provided the following hint to guide your reasoning. "
-            "Treat it as a strong steer but verify it against the problem.\n"
-            f"User hint:\n{hint}"
+            f"Original source image/PDF: {src_path}. Source page for this "
+            f"problem: {problem.source_page or 1}. Read it for "
+            "`update_figure_bbox` or `update_problem_text`."
         )
-    if figure_image:
-        fig_path = storage.figure_path(figure_image)
+    else:
         prompt_parts.append(
-            f"An accompanying figure is at {fig_path}. Read it with the "
-            "`Read` tool for spatial relationships (incidence, ordering of "
-            "points, which lines are parallel, etc.). The problem text is "
-            "authoritative for any numeric values."
+            "(No source image is stored for this problem, so "
+            "`update_figure_bbox` and `update_problem_text` are unavailable. "
+            "Use `resolve_with_hint` and note the limitation if relevant.)"
         )
+
     prompt = "\n\n".join(prompt_parts)
 
     print(f"[refine] start problem={problem.id}", flush=True)
@@ -120,22 +235,13 @@ async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
     elapsed = time.monotonic() - started
     print(f"[refine] done in {elapsed:.2f}s", flush=True)
 
-    if len(updated) != 1:
+    if len(chosen) != 1:
         raise ValueError(
-            f"Refine expected exactly one update, got {len(updated)} "
+            f"Refine expected exactly one action, got {len(chosen)} "
             f"for problem {problem.id}"
         )
-
-    if update_solve_time:
-        return storage.update_problem(
-            problem.id,
-            solve_time_seconds=round(elapsed, 2),
-            solve_time_estimated=False,
-        )
-    return updated[0]
+    return chosen[0]
 
 
 def refine_problem(problem: storage.Problem, hint: str = "") -> storage.Problem:
-    import asyncio
-
     return asyncio.run(_refine_async(problem, hint))
