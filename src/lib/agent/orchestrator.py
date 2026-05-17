@@ -15,7 +15,7 @@ from claude_agent_sdk import (
 from lib import storage
 
 from .solver import solve_problem
-from .util import MODEL, PROMPTS_DIR, log_message
+from .util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 
 ORCHESTRATOR_MAX_TURNS = 4
 # Concurrency cap for fan-out. Each inner solver is its own SDK session, so
@@ -78,6 +78,7 @@ async def _parse_problems(image_path: Path) -> list[dict]:
         mcp_servers={"orchestrator": server},
         allowed_tools=["Read", "mcp__orchestrator__report_problems"],
         max_turns=ORCHESTRATOR_MAX_TURNS,
+        max_buffer_size=MAX_BUFFER_SIZE,
     )
     prompt = (
         f"Read the file at {image_path} (image or PDF). Extract every "

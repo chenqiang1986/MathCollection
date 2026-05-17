@@ -16,6 +16,10 @@ from claude_agent_sdk import (
 MODEL = "claude-sonnet-4-6"
 PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
+# SDK stdio JSON buffer cap. The default (1 MiB) overflows on multi-page PDFs
+# whose Read tool results come back as a single base64-bearing JSON message.
+MAX_BUFFER_SIZE = 32 * 1024 * 1024
+
 
 def _truncate(text: str, limit: int = 300) -> str:
     text = text.replace("\n", " ")

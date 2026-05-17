@@ -5,6 +5,7 @@ text from the source. Updates the existing record in-place."""
 
 import asyncio
 import time
+from pathlib import Path
 
 import figures
 from claude_agent_sdk import (
@@ -16,7 +17,7 @@ from claude_agent_sdk import (
 from jinja2 import Environment, FileSystemLoader
 from lib import storage
 
-from .util import MODEL, PROMPTS_DIR, log_message
+from .util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 
 REFINE_MAX_TURNS = 8
 
@@ -187,6 +188,7 @@ async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
         mcp_servers={"refine_store": server},
         allowed_tools=allowed_tools,
         max_turns=REFINE_MAX_TURNS,
+        max_buffer_size=MAX_BUFFER_SIZE,
     )
 
     prompt_parts = [
@@ -212,12 +214,19 @@ async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
             prompt_parts.append(
                 f"Current figure_bbox (normalized): {problem.figure_bbox}"
             )
+    rendered_page_path: Path | None = None
     if problem.source_image:
-        src_path = storage.raw_upload_path(problem.source_image)
+        source_page = problem.source_page or 1
+        rendered_page_path = figures.render_source_page_to_temp_png(
+            problem.source_image, page=source_page
+        )
         prompt_parts.append(
-            f"Original source image/PDF: {src_path}. Source page for this "
-            f"problem: {problem.source_page or 1}. Read it for "
-            "`update_figure_bbox` or `update_problem_text`."
+            f"Source page {source_page} rendered as PNG: "
+            f"{rendered_page_path}. This image IS the page (already "
+            "rasterized for you) — Read it once for `update_figure_bbox` "
+            "(bbox is normalized [0,1] over this page) or "
+            "`update_problem_text`. Pass figure_page="
+            f"{source_page} when calling `update_figure_bbox`."
         )
     else:
         prompt_parts.append(
@@ -230,8 +239,12 @@ async def _refine_async(problem: storage.Problem, hint: str) -> storage.Problem:
 
     print(f"[refine] start problem={problem.id}", flush=True)
     started = time.monotonic()
-    async for message in query(prompt=prompt, options=options):
-        log_message(message)
+    try:
+        async for message in query(prompt=prompt, options=options):
+            log_message(message)
+    finally:
+        if rendered_page_path is not None:
+            rendered_page_path.unlink(missing_ok=True)
     elapsed = time.monotonic() - started
     print(f"[refine] done in {elapsed:.2f}s", flush=True)
 

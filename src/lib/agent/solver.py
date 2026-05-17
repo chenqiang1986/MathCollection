@@ -12,7 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from lib import storage
 
 from .problem_store import build_problem_store
-from .util import MODEL, PROMPTS_DIR, log_message
+from .util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 
 SOLVER_MAX_TURNS = 7
 
@@ -57,6 +57,7 @@ async def _run_inner_solver(
         mcp_servers={"problem_store": server},
         allowed_tools=allowed_tools,
         max_turns=SOLVER_MAX_TURNS,
+        max_buffer_size=MAX_BUFFER_SIZE,
     )
 
     user_action = (
