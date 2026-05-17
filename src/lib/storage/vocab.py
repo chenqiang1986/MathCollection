@@ -17,7 +17,11 @@ class Problem:
     solve_time_estimated: bool = False
     solution: str = ""
     source_image: str | None = None
+    source_page: int | None = None
+    source_exam: str = "Unknown"
+    year: str = "Unknown"
     figure_image: str | None = None
+    figure_bbox: list[float] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Problem":

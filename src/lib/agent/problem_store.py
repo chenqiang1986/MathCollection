@@ -19,7 +19,11 @@ CATEGORY_EDIT_EXAMPLES_LIMIT = 5
 def build_problem_store(
     source_image: str | None,
     saved: list[storage.Problem],
+    source_page: int | None = None,
+    source_exam: str = "Unknown",
+    year: str = "Unknown",
     figure_image: str | None = None,
+    figure_bbox: list[float] | None = None,
     with_solution: bool = True,
 ):
     lookup_called = {"value": False}
@@ -76,7 +80,11 @@ def build_problem_store(
             subcategory=args.get("subcategory", ""),
             solution=args.get("solution", ""),
             source_image=source_image,
+            source_page=source_page,
+            source_exam=source_exam,
+            year=year,
             figure_image=figure_image,
+            figure_bbox=figure_bbox,
             solve_time_seconds=(
                 float(estimated_time) if estimated_time is not None else None
             ),

@@ -27,12 +27,23 @@ _SOLVER_TEMPLATE = Environment(
 async def _run_inner_solver(
     problem_text: str,
     source_image: str | None,
+    source_page: int | None = None,
+    source_exam: str = "Unknown",
+    year: str = "Unknown",
     figure_image: str | None = None,
+    figure_bbox: list[float] | None = None,
     with_solution: bool = True,
 ) -> storage.Problem:
     saved: list[storage.Problem] = []
     server = build_problem_store(
-        source_image, saved, figure_image=figure_image, with_solution=with_solution
+        source_image,
+        saved,
+        source_page=source_page,
+        source_exam=source_exam,
+        year=year,
+        figure_image=figure_image,
+        figure_bbox=figure_bbox,
+        with_solution=with_solution,
     )
 
     allowed_tools = [
@@ -105,28 +116,52 @@ def build_solver_tool(
             "single math problem. Pass the verbatim problem text with math "
             "wrapped in `$...$` (inline) or `$$...$$` (display). Escape any "
             "literal dollar-sign currency (USD) as `\\$` (e.g. `\\$5` for "
-            "five dollars) so it is not parsed as a math delimiter. If the "
-            "problem has an accompanying figure in the source image, pass "
+            "five dollars) so it is not parsed as a math delimiter. Also "
+            "pass `source_exam` (math competition name such as 'AMC10', "
+            "'AIME', 'BMT', 'ARML' — use 'Unknown' if absent), `year` (the "
+            "4-digit year of the competition as a string, or 'Unknown' if "
+            "absent), and `source_page` (1-indexed page number the problem "
+            "appears on; pass 1 for single-image sources). If the problem "
+            "has an accompanying figure in the source image, pass "
             "`figure_bbox` as a list [x0, y0, x1, y1] of normalized "
             "coordinates in [0, 1] tightly enclosing just the figure (no "
             "surrounding problem text), and `figure_rotation` as the "
             "clockwise rotation in degrees (0, 90, 180, or 270) needed to "
-            "make the cropped figure appear upright. Otherwise pass an "
-            "empty list and 0. Returns a short confirmation string with the "
+            "make the cropped figure appear upright. When the source is a "
+            "multi-page PDF, also pass `figure_page` as the 1-indexed page "
+            "number the figure appears on; `figure_bbox` is relative to that "
+            "page. For single-image sources or problems with no figure, "
+            "`figure_page` is ignored (pass 1). When there is no figure, "
+            "pass an empty list for `figure_bbox` and 0 for "
+            "`figure_rotation`. Returns a short confirmation string with the "
             "saved record id, category, and difficulty. Call once per "
             "distinct problem."
         ),
-        {"problem_text": str, "figure_bbox": list, "figure_rotation": int},
+        {
+            "problem_text": str,
+            "source_exam": str,
+            "year": str,
+            "source_page": int,
+            "figure_bbox": list,
+            "figure_rotation": int,
+            "figure_page": int,
+        },
     )
     async def solve_and_save(args: dict) -> dict:
         bbox = args.get("figure_bbox") or []
         rotation = int(args.get("figure_rotation") or 0)
+        page = int(args.get("figure_page") or 1)
+        source_page = int(args.get("source_page") or 1)
+        source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
+        year = str(args.get("year") or "Unknown").strip() or "Unknown"
         figure_image: str | None = None
+        saved_bbox: list[float] | None = None
         if bbox and source_image:
             try:
                 figure_image = figures.save_figure(
-                    source_image, bbox, rotation=rotation
+                    source_image, bbox, rotation=rotation, page=page
                 )
+                saved_bbox = [float(v) for v in bbox]
             except Exception as e:
                 return {
                     "content": [
@@ -143,7 +178,11 @@ def build_solver_tool(
         problem = await _run_inner_solver(
             args["problem_text"],
             source_image,
+            source_page=source_page,
+            source_exam=source_exam,
+            year=year,
             figure_image=figure_image,
+            figure_bbox=saved_bbox,
             with_solution=with_solution,
         )
         all_saved.append(problem)

@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 
 from .auth import login_required, upload_allowed_required
 
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
 UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 bp = Blueprint("uploads", __name__)

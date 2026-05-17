@@ -44,9 +44,10 @@ async def _process_image_async(
     )
 
     prompt = (
-        f"Read the image at {image_path}. Extract every distinct math problem "
-        "and dispatch each one to `mcp__solver__solve_and_save`. When all "
-        "problems have been dispatched, reply with a short summary."
+        f"Read the file at {image_path} (image or PDF). Extract every "
+        "distinct math problem and dispatch each one to "
+        "`mcp__solver__solve_and_save`. When all problems have been "
+        "dispatched, reply with a short summary."
     )
 
     print("[orchestrator] start", flush=True)

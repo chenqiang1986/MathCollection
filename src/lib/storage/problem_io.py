@@ -22,7 +22,11 @@ def save_problem(
     subcategory: str = "",
     solution: str = "",
     source_image: str | None = None,
+    source_page: int | None = None,
+    source_exam: str = "Unknown",
+    year: str = "Unknown",
     figure_image: str | None = None,
+    figure_bbox: list[float] | None = None,
     solve_time_seconds: float | None = None,
     solve_time_estimated: bool = False,
 ) -> Problem:
@@ -36,7 +40,11 @@ def save_problem(
         solve_time_estimated=solve_time_estimated,
         solution=solution,
         source_image=source_image,
+        source_page=source_page,
+        source_exam=source_exam or "Unknown",
+        year=year or "Unknown",
         figure_image=figure_image or None,
+        figure_bbox=figure_bbox or None,
     )
     _write_problem_file(problem)
     with _connect() as conn:
