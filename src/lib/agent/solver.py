@@ -1,15 +1,13 @@
-"""Inner solver: classifies/solves a single problem in a fresh agent context,
-and the MCP `solve_and_save` tool that the orchestrator calls to spawn one."""
+"""Inner solver: classifies/solves a single problem in a fresh agent context.
+
+Exposes `solve_problem`, a plain async function that takes one parsed
+problem dict from the orchestrator, crops its figure if any, and runs the
+solver agent against it."""
 
 import time
 
 import figures
-from claude_agent_sdk import (
-    ClaudeAgentOptions,
-    create_sdk_mcp_server,
-    query,
-    tool,
-)
+from claude_agent_sdk import ClaudeAgentOptions, query
 from jinja2 import Environment, FileSystemLoader
 from lib import storage
 
@@ -104,111 +102,35 @@ async def _run_inner_solver(
     return problem
 
 
-def build_solver_tool(
+async def solve_problem(
+    parsed: dict,
     source_image: str | None,
-    all_saved: list[storage.Problem],
     with_solution: bool = True,
-):
-    @tool(
-        "solve_and_save",
-        (
-            "Spawn a fresh sub-agent that classifies, solves, and persists a "
-            "single math problem. Pass the verbatim problem text with math "
-            "wrapped in `$...$` (inline) or `$$...$$` (display). Escape any "
-            "literal dollar-sign currency (USD) as `\\$` (e.g. `\\$5` for "
-            "five dollars) so it is not parsed as a math delimiter. Also "
-            "pass `source_exam` (math competition name such as 'AMC10', "
-            "'AIME', 'BMT', 'ARML' — use 'Unknown' if absent), `year` (the "
-            "4-digit year of the competition as a string, or 'Unknown' if "
-            "absent), and `source_page` (1-indexed page number the problem "
-            "appears on; pass 1 for single-image sources). If the problem "
-            "has an accompanying figure in the source image, pass "
-            "`figure_bbox` as a list [x0, y0, x1, y1] of normalized "
-            "coordinates in [0, 1] tightly enclosing just the figure (no "
-            "surrounding problem text), and `figure_rotation` as the "
-            "clockwise rotation in degrees (0, 90, 180, or 270) needed to "
-            "make the cropped figure appear upright. When the source is a "
-            "multi-page PDF, also pass `figure_page` as the 1-indexed page "
-            "number the figure appears on; `figure_bbox` is relative to that "
-            "page. For single-image sources or problems with no figure, "
-            "`figure_page` is ignored (pass 1). When there is no figure, "
-            "pass an empty list for `figure_bbox` and 0 for "
-            "`figure_rotation`. Returns a short confirmation string with the "
-            "saved record id, category, and difficulty. Call once per "
-            "distinct problem."
-        ),
-        {
-            "problem_text": str,
-            "source_exam": str,
-            "year": str,
-            "source_page": int,
-            "figure_bbox": list,
-            "figure_rotation": int,
-            "figure_page": int,
-        },
-    )
-    async def solve_and_save(args: dict) -> dict:
-        bbox = args.get("figure_bbox") or []
-        rotation = int(args.get("figure_rotation") or 0)
-        page = int(args.get("figure_page") or 1)
-        source_page = int(args.get("source_page") or 1)
-        source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
-        year = str(args.get("year") or "Unknown").strip() or "Unknown"
-        figure_image: str | None = None
-        saved_bbox: list[float] | None = None
-        if bbox and source_image:
-            try:
-                figure_image = figures.save_figure(
-                    source_image, bbox, rotation=rotation, page=page
-                )
-                saved_bbox = [float(v) for v in bbox]
-            except Exception as e:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"figure_bbox crop failed: {e}. Re-call with "
-                                "a valid normalized bbox or an empty list."
-                            ),
-                        }
-                    ],
-                    "is_error": True,
-                }
-        problem = await _run_inner_solver(
-            args["problem_text"],
-            source_image,
-            source_page=source_page,
-            source_exam=source_exam,
-            year=year,
-            figure_image=figure_image,
-            figure_bbox=saved_bbox,
-            with_solution=with_solution,
-        )
-        all_saved.append(problem)
-        secs = problem.solve_time_seconds
-        if secs is None:
-            tail = "solve_time=unknown"
-        else:
-            qual = "est." if problem.solve_time_estimated else "measured"
-            tail = f"solve_time={secs}s ({qual})"
-        cat_str = problem.category
-        if problem.subcategory:
-            cat_str = f"{problem.category} / {problem.subcategory}"
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"Saved {problem.id} "
-                        f"(category={cat_str}, {tail})"
-                    ),
-                }
-            ]
-        }
+) -> storage.Problem:
+    """Crop the figure (if any) and run the inner solver for one parsed
+    problem dict produced by the orchestrator."""
+    bbox = parsed.get("figure_bbox") or []
+    rotation = int(parsed.get("figure_rotation") or 0)
+    page = int(parsed.get("figure_page") or 1)
+    source_page = int(parsed.get("source_page") or 1)
+    source_exam = (parsed.get("source_exam") or "Unknown").strip() or "Unknown"
+    year = str(parsed.get("year") or "Unknown").strip() or "Unknown"
 
-    return create_sdk_mcp_server(
-        name="solver",
-        version="1.0.0",
-        tools=[solve_and_save],
+    figure_image: str | None = None
+    saved_bbox: list[float] | None = None
+    if bbox and source_image:
+        figure_image = figures.save_figure(
+            source_image, bbox, rotation=rotation, page=page
+        )
+        saved_bbox = [float(v) for v in bbox]
+
+    return await _run_inner_solver(
+        parsed["problem_text"],
+        source_image,
+        source_page=source_page,
+        source_exam=source_exam,
+        year=year,
+        figure_image=figure_image,
+        figure_bbox=saved_bbox,
+        with_solution=with_solution,
     )

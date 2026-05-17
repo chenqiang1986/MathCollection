@@ -49,6 +49,7 @@ override strings in Python.**
 - Don't paste prompt overrides into Python. If a rule is conditional on
   `with_solution`, express it with Jinja2 in `solver.md`.
 - Don't change the tool names referenced in these prompts
-  (`mcp__solver__solve_and_save`, `mcp__problem_store__save_problem`,
+  (`mcp__orchestrator__report_problems`,
+  `mcp__problem_store__save_problem`,
   `mcp__problem_store__lookup_category_edits`) without updating the MCP
   servers.

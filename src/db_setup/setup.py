@@ -1,8 +1,11 @@
 """Per-user SQLite DB initialization.
 
-Apply [schema.sql](schema.sql) to the current user's index DB and backfill
-the `problems` table from their JSON files if empty. Caller must have
-already bound the user context via `storage.set_current_user(...)`.
+Apply [schema.sql](schema.sql) to the current user's index DB. When the
+schema file declares a version newer than what the DB has been backfilled
+to, re-upsert every row from the JSON files so columns added by the new
+ALTER statements pick up real values instead of placeholder defaults.
+Caller must have already bound the user context via
+`storage.set_current_user(...)`.
 """
 
 import json
@@ -20,47 +23,39 @@ def init_user() -> None:
     db = index_path()
     db.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db) as conn:
-        # Migrate first so subsequent CREATE INDEX statements in schema.sql
-        # that reference new columns don't fail on legacy DBs.
-        _migrate_add_subcategory(conn)
-        conn.executescript(SCHEMA_FILE.read_text())
+        _apply_schema(conn)
+        schema_v, data_v = conn.execute(
+            "SELECT schema_version, data_version FROM schema_version"
+        ).fetchone()
+    if schema_v == data_v:
+        return
     _backfill_problems()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE schema_version SET data_version = ?", (schema_v,)
+        )
 
 
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone()
-    return row is not None
+def _apply_schema(conn: sqlite3.Connection) -> None:
+    """Run schema.sql one statement at a time, tolerating duplicate-column
+    errors when ALTER TABLE statements are re-executed on an already-
+    migrated DB. (SQLite has no `ADD COLUMN IF NOT EXISTS`.)"""
+    for stmt in _split_statements(SCHEMA_FILE.read_text()):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
 
 
-def _migrate_add_subcategory(conn: sqlite3.Connection) -> None:
-    """Add subcategory columns to DBs created before the two-layer schema.
-    SQLite has no `ADD COLUMN IF NOT EXISTS`, so check PRAGMA first.
-    Runs before schema.sql is (re-)applied, so the new CREATE INDEX
-    statements in schema.sql can safely reference the new columns."""
-    if _table_exists(conn, "problems"):
-        problem_cols = {
-            r[1] for r in conn.execute("PRAGMA table_info(problems)").fetchall()
-        }
-        if "subcategory" not in problem_cols:
-            conn.execute(
-                "ALTER TABLE problems ADD COLUMN subcategory TEXT NOT NULL DEFAULT ''"
-            )
-    if _table_exists(conn, "category_edits"):
-        edit_cols = {
-            r[1] for r in conn.execute("PRAGMA table_info(category_edits)").fetchall()
-        }
-        if "from_subcategory" not in edit_cols:
-            conn.execute(
-                "ALTER TABLE category_edits "
-                "ADD COLUMN from_subcategory TEXT NOT NULL DEFAULT ''"
-            )
-        if "to_subcategory" not in edit_cols:
-            conn.execute(
-                "ALTER TABLE category_edits "
-                "ADD COLUMN to_subcategory TEXT NOT NULL DEFAULT ''"
-            )
+def _split_statements(sql: str):
+    """Split a SQL script on ';'. Strip `--` line comments first so an
+    incidental `;` inside a comment doesn't break a statement in half."""
+    stripped = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
+    for raw in stripped.split(";"):
+        stmt = raw.strip()
+        if stmt:
+            yield stmt
 
 
 def _backfill_problems() -> None:
@@ -68,8 +63,6 @@ def _backfill_problems() -> None:
     if not pdir.exists():
         return
     with _connect() as conn:
-        if conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0] > 0:
-            return
         for p in sorted(pdir.glob("*.json")):
             try:
                 data = json.loads(p.read_text())

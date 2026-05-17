@@ -81,6 +81,12 @@ def index_summary() -> dict:
             "SELECT MAX(solve_time_seconds) FROM problems"
         ).fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
+        exam_rows = conn.execute(
+            "SELECT DISTINCT source_exam FROM problems ORDER BY source_exam"
+        ).fetchall()
+        year_rows = conn.execute(
+            "SELECT DISTINCT year FROM problems ORDER BY year DESC"
+        ).fetchall()
     # Group subcategories under their parent category, preserving order.
     cat_map: dict[str, list[str]] = {}
     for r in rows:
@@ -90,9 +96,13 @@ def index_summary() -> dict:
             subs.append(sub)
     categories = list(cat_map.keys())
     slider_max = 60 if max_time is None else max(1, int(math.ceil(max_time)))
+    exams = [r["source_exam"] for r in exam_rows if r["source_exam"]]
+    years = [r["year"] for r in year_rows if r["year"]]
     return {
         "categories": categories,
         "subcategories": cat_map,
         "max_time": slider_max,
         "total": total,
+        "exams": exams,
+        "years": years,
     }

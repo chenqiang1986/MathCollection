@@ -1,22 +1,28 @@
 # Agent package
 
-Two-tier Claude Agent SDK pipeline that turns one uploaded image into N
-saved problem records.
+Two-stage pipeline that turns one uploaded image into N saved problem records:
+one orchestrator LLM call parses the source into a structured problem list,
+then a plain Python `asyncio.gather` fans the list out to per-problem
+solver agents.
 
 ## Files
 
 - [__init__.py](__init__.py) — public surface (`process_image`,
   `ProcessImageResult`, `build_problem_store`, `MODEL`, `log_message`).
-- [orchestrator.py](orchestrator.py) — outer agent. Reads the image, identifies
-  distinct problems, dispatches each one to `mcp__solver__solve_and_save`,
-  returns a `ProcessImageResult(saved, summary)`. Sync wrapper
-  `process_image(...)` calls `asyncio.run` internally — do not call it from
-  inside an existing event loop.
-- [solver.py](solver.py) — inner agent. The `solve_and_save` MCP tool spawns a
-  fresh `query()` per problem with the solver system prompt, optionally crops
-  a figure via [../../figures.py](../../figures.py), measures wall-clock
-  duration, and patches the saved record's `solve_time_seconds` when
-  `with_solution=True`.
+- [orchestrator.py](orchestrator.py) — outer driver. Runs ONE orchestrator
+  query whose only tool is `mcp__orchestrator__report_problems`; the model
+  reads the image and calls it once with the full structured list. The
+  Python loop then `asyncio.gather`s `solve_problem` over that list with a
+  `SOLVER_CONCURRENCY`-sized semaphore. Sync wrapper `process_image(...)`
+  calls `asyncio.run` internally — do not call it from inside an existing
+  event loop. No natural-language branching happens between problems, so
+  there is no inter-problem agent loop.
+- [solver.py](solver.py) — per-problem inner agent. `solve_problem(parsed,
+  source_image, with_solution)` crops the figure via
+  [../../figures.py](../../figures.py) if `figure_bbox` is non-empty, then
+  runs a fresh `query()` with the solver system prompt, measures
+  wall-clock duration, and patches `solve_time_seconds` on the saved
+  record when `with_solution=True`.
 - [problem_store.py](problem_store.py) — in-process MCP server exposing
   `save_problem` and `lookup_category_edits`. The `save_problem` schema is
   shaped at runtime by `with_solution` (see below); keep it in sync with
@@ -33,17 +39,19 @@ saved problem records.
 
 ```
 process_image(image_path, source_image, with_solution)
-  └─ orchestrator query (system: prompts/orchestrator.md)
-       ├─ Read(image_path)
-       └─ for each problem:
-            mcp__solver__solve_and_save(problem_text, figure_bbox, figure_rotation)
-              ├─ figures.save_figure(...) if bbox non-empty
-              └─ inner solver query (system: prompts/solver.md rendered with with_solution)
-                   ├─ Read(figure) if figure was cropped
-                   ├─ mcp__problem_store__lookup_category_edits(category)
-                   │    └─ storage.category_edit_examples(...)  →  list[dict]
-                   └─ mcp__problem_store__save_problem(...)
-                        └─ storage.save_problem(...)  →  Problem
+  ├─ orchestrator query (system: prompts/orchestrator.md)
+  │    ├─ Read(image_path)
+  │    └─ mcp__orchestrator__report_problems(problems=[...])    # exactly once
+  │
+  └─ asyncio.gather over parsed problems (bounded by SOLVER_CONCURRENCY):
+       solve_problem(parsed, source_image, with_solution)
+         ├─ figures.save_figure(...) if bbox non-empty
+         └─ inner solver query (system: prompts/solver.md rendered with with_solution)
+              ├─ Read(figure) if figure was cropped
+              ├─ mcp__problem_store__lookup_category_edits(category)
+              │    └─ storage.category_edit_examples(...)  →  list[dict]
+              └─ mcp__problem_store__save_problem(...)
+                   └─ storage.save_problem(...)  →  Problem
 ```
 
 After the inner query returns, when `with_solution=True` the solver patches
@@ -55,31 +63,36 @@ estimate is kept and `solve_time_estimated=True`.
 
 - `MODEL = "claude-sonnet-4-6"` lives in [util.py](util.py); don't hardcode it
   elsewhere.
-- `ORCHESTRATOR_MAX_TURNS = 20`, `SOLVER_MAX_TURNS = 7` (one extra turn over
-  the old 6 to accommodate the mandatory `lookup_category_edits` call).
-  Bump only with a reason — runaway tool loops are the failure mode.
+- `ORCHESTRATOR_MAX_TURNS = 4` (Read + report_problems + a small slack
+  margin), `SOLVER_MAX_TURNS = 7`, `SOLVER_CONCURRENCY = 4`. Bump only
+  with a reason — runaway tool loops or rate-limit pressure are the
+  failure modes.
 - The orchestrator's allowed tools are exactly
-  `["Read", "mcp__solver__solve_and_save"]`. The inner solver's are
+  `["Read", "mcp__orchestrator__report_problems"]`. The inner solver's are
   `["mcp__problem_store__save_problem",
   "mcp__problem_store__lookup_category_edits"]` plus `"Read"` only when a
   figure was successfully cropped.
+- `report_problems` takes a single `problems: list` arg; per-problem
+  fields are documented in [../../prompts/orchestrator.md](../../prompts/orchestrator.md).
+  Empty `figure_bbox` means no figure. Crop errors are caught per problem
+  by the dispatch loop, which logs them and skips that problem — the
+  batch as a whole still returns.
 - `save_problem` schema:
   - `with_solution=True`: `{problem_text, category, solution}` —
     `solve_time_seconds` is filled in afterwards from measured wall-clock.
   - `with_solution=False`: `{problem_text, category, solve_time_seconds}` —
     Claude's own estimate.
-- `solve_and_save` always takes `figure_bbox: list` and `figure_rotation: int`.
-  Empty bbox means no figure. Bad bbox returns a tool error so the
-  orchestrator can retry with corrected coordinates.
 - Every assistant / tool / result message is logged via `log_message` for
   debuggability. Keep the truncation budget small (300 chars) so logs stay
   readable.
 
 ## Don't
 
-- Don't let the orchestrator solve problems itself — it must delegate every
-  problem via `solve_and_save`.
-- Don't batch multiple problems into one `solve_and_save` call.
+- Don't put any natural-language decision step between problems back into
+  the orchestrator — it's intentionally a single parse call followed by
+  deterministic Python fan-out. If a future feature genuinely needs the
+  model to react to a solver result, that's a different agent, not a
+  re-promotion of the orchestrator.
 - Don't append model overrides in Python; edit
   [../../prompts/](../../prompts/) instead.
 - Don't import the Flask layer from here. Agent code should depend on

@@ -35,6 +35,8 @@
   const printBar = document.getElementById("print-bar");
   const catSel = document.getElementById("filter-category");
   const subSel = document.getElementById("filter-subcategory");
+  const examSel = document.getElementById("filter-exam");
+  const yearSel = document.getElementById("filter-year");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -106,11 +108,17 @@
         `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>`
       : "";
 
+    const examText = p.source_exam && p.source_exam !== "Unknown" ? p.source_exam : "";
+    const yearText = p.year && p.year !== "Unknown" ? p.year : "";
+    const sourceLabel = [yearText, examText].filter(Boolean).join(" · ");
+    const sourceSpan = sourceLabel ? `<span class="source">${escapeHtml(sourceLabel)}</span>` : "";
+
     let html = actionButtons +
       `<h3>${heading}</h3>` +
       `<div class="meta">` +
-        `<span>${escapeHtml(p.id.slice(0, 8))}</span>` +
+        sourceSpan +
         `<span>${escapeHtml((p.created_at || "").slice(0, 19).replace("T", " "))}</span>` +
+        `<span>${escapeHtml(p.id.slice(0, 8))}</span>` +
       `</div>` +
       `<div class="rendered">${escapeHtml(p.problem_text)}</div>`;
 
@@ -154,6 +162,8 @@
     const params = new URLSearchParams();
     if (catSel && catSel.value) params.set("category", catSel.value);
     if (subSel && subSel.value) params.set("subcategory", subSel.value);
+    if (examSel && examSel.value) params.set("source_exam", examSel.value);
+    if (yearSel && yearSel.value) params.set("year", yearSel.value);
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
@@ -196,6 +206,8 @@
     const active =
       (catSel && catSel.value) ||
       (subSel && subSel.value) ||
+      (examSel && examSel.value) ||
+      (yearSel && yearSel.value) ||
       rangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
@@ -655,6 +667,8 @@
         catSel.appendChild(opt);
       });
     }
+    populateSelect(examSel, summary.exams || []);
+    populateSelect(yearSel, summary.years || []);
     knownCategories = (summary.categories || []).slice();
     subcategoryMap = summary.subcategories || {};
     const subSet = new Set();
@@ -674,8 +688,25 @@
     onFilterChange();
   });
   if (subSel) subSel.addEventListener("change", onFilterChange);
+  if (examSel) examSel.addEventListener("change", onFilterChange);
+  if (yearSel) yearSel.addEventListener("change", onFilterChange);
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
+
+  function populateSelect(sel, values) {
+    if (!sel) return;
+    const previous = sel.value;
+    sel.innerHTML = `<option value="">All</option>`;
+    values.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      sel.appendChild(opt);
+    });
+    if (previous && values.indexOf(previous) !== -1) {
+      sel.value = previous;
+    }
+  }
 
   pagePrev.addEventListener("click", () => {
     if (currentPage > 1) {

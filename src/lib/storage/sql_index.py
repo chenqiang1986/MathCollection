@@ -23,15 +23,17 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
         """
         INSERT INTO problems
             (id, filename, category, subcategory, solve_time_seconds,
-             solve_time_estimated, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             solve_time_estimated, created_at, source_exam, year)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             category = excluded.category,
             subcategory = excluded.subcategory,
             solve_time_seconds = excluded.solve_time_seconds,
             solve_time_estimated = excluded.solve_time_estimated,
-            created_at = excluded.created_at
+            created_at = excluded.created_at,
+            source_exam = excluded.source_exam,
+            year = excluded.year
         """,
         (
             problem.id,
@@ -41,6 +43,8 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             problem.solve_time_seconds,
             1 if problem.solve_time_estimated else 0,
             problem.created_at,
+            problem.source_exam or "Unknown",
+            problem.year or "Unknown",
         ),
     )
 
@@ -51,6 +55,8 @@ def _build_where(
     min_time: float | None,
     max_time: float | None,
     full_range_max: float | None = None,
+    source_exam: str | None = None,
+    year: str | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause. If min_time/max_time covers the full slider range,
     do not exclude rows with NULL solve_time_seconds."""
@@ -62,6 +68,12 @@ def _build_where(
     if subcategory:
         where.append("subcategory = ?")
         params.append(subcategory.lower())
+    if source_exam:
+        where.append("source_exam = ?")
+        params.append(source_exam)
+    if year:
+        where.append("year = ?")
+        params.append(year)
     range_active = False
     if min_time is not None and (full_range_max is None or min_time > 0):
         range_active = True
@@ -87,9 +99,12 @@ def query_index(
     page: int = 1,
     page_size: int = 5,
     full_range_max: float | None = None,
+    source_exam: str | None = None,
+    year: str | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
-        category, subcategory, min_time, max_time, full_range_max
+        category, subcategory, min_time, max_time, full_range_max,
+        source_exam, year,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -114,9 +129,12 @@ def sample_index(
     min_time: float | None = None,
     max_time: float | None = None,
     full_range_max: float | None = None,
+    source_exam: str | None = None,
+    year: str | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
-        category, subcategory, min_time, max_time, full_range_max
+        category, subcategory, min_time, max_time, full_range_max,
+        source_exam, year,
     )
     with _connect() as conn:
         rows = conn.execute(
