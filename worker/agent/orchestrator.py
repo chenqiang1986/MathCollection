@@ -12,10 +12,10 @@ from claude_agent_sdk import (
     query,
     tool,
 )
-from lib import storage
+from common import storage
+from common.agent_util import MAX_BUFFER_SIZE, MODEL, log_message
 
 from .solver import solve_problem
-from .util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 
 ORCHESTRATOR_MAX_TURNS = 4
 # Concurrency cap for fan-out. Each inner solver is its own SDK session, so
@@ -23,7 +23,10 @@ ORCHESTRATOR_MAX_TURNS = 4
 # five-hour rate limit on Sonnet.
 SOLVER_CONCURRENCY = 4
 
-ORCHESTRATOR_SYSTEM_PROMPT = (PROMPTS_DIR / "orchestrator.md").read_text()
+# Orchestrator prompt is worker-local — only this orchestrator reads it.
+# Solver prompt stays in webapp/src/prompts/ because refine.md includes it.
+WORKER_PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+ORCHESTRATOR_SYSTEM_PROMPT = (WORKER_PROMPTS_DIR / "orchestrator.md").read_text()
 
 
 class ProcessImageInput(NamedTuple):

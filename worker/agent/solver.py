@@ -6,13 +6,12 @@ solver agent against it."""
 
 import time
 
-import figures
 from claude_agent_sdk import ClaudeAgentOptions, query
+from common import figures, storage
+from common.agent_util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 from jinja2 import Environment, FileSystemLoader
-from lib import storage
 
 from .problem_store import build_problem_store
-from .util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 
 SOLVER_MAX_TURNS = 7
 

@@ -2,7 +2,8 @@
 
 from flask import Blueprint, jsonify, request
 
-from lib import agent, storage
+from common import storage
+from lib import agent
 
 from .auth import login_required, upload_allowed_required
 

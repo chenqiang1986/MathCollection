@@ -1,4 +1,10 @@
-"""Upload form handler and per-user figure serving."""
+"""Upload form handler and per-user figure serving.
+
+Uploads only save the raw file and insert a `pending` row in the
+per-user queue DB. The offline worker (`worker/`) picks up pending
+rows, runs the agent, and writes problems back. The webapp no longer
+touches the agent at all.
+"""
 
 import hashlib
 
@@ -11,7 +17,7 @@ from flask import (
     send_from_directory,
     url_for,
 )
-from lib import agent, storage
+from common import storage
 from .auth import login_required, upload_allowed_required
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
@@ -31,7 +37,10 @@ def upload():
     raw_dir = storage.raw_uploads_dir()
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs: list[agent.ProcessImageInput] = []
+    with_solution = bool(request.form.get("with_solution"))
+
+    queued = 0
+    already_queued = 0
     for file in files:
         ext = (
             file.filename.rsplit(".", 1)[-1].lower()
@@ -55,24 +64,23 @@ def upload():
         saved_path = raw_dir / safe_name
         if not saved_path.exists():
             saved_path.write_bytes(image_bytes)
-        inputs.append(
-            agent.ProcessImageInput(
-                image_path=saved_path, source_image=safe_name
-            )
+        if storage.enqueue_raw(safe_name, with_solution=with_solution):
+            queued += 1
+        else:
+            already_queued += 1
+
+    if queued:
+        flash(
+            f"Queued {queued} file(s) for offline processing.",
+            "success",
         )
-
-    if not inputs:
-        return redirect(url_for("pages.index"))
-
-    with_solution = bool(request.form.get("with_solution"))
-
-    try:
-        result = agent.process_images(inputs, with_solution=with_solution)
-    except Exception as e:
-        flash(f"Agent error: {e}", "error")
-        return redirect(url_for("pages.index"))
-
-    return render_template("index.html", result=result, logged_in=True)
+    if already_queued:
+        flash(
+            f"{already_queued} file(s) were already queued or processed; "
+            "skipped.",
+            "success",
+        )
+    return redirect(url_for("pages.index"))
 
 
 @bp.route("/figures/<path:filename>", methods=["GET"])

@@ -4,7 +4,8 @@ import contextvars
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+# common/storage/paths.py → common/storage → common → repo root.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
 _CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("current_user")
@@ -65,3 +66,7 @@ def raw_upload_path(filename: str) -> Path:
 
 def index_path() -> Path:
     return user_dir() / "problems_index.db"
+
+
+def queue_path() -> Path:
+    return user_dir() / "raw_queue.db"

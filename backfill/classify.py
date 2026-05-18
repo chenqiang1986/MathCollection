@@ -14,8 +14,8 @@ from claude_agent_sdk import (
     TextBlock,
     query,
 )
-from lib import storage
-from lib.agent.util import MODEL, PROMPTS_DIR
+from common import storage
+from common.agent_util import MODEL, PROMPTS_DIR
 
 Mode = Literal["missing", "all"]
 

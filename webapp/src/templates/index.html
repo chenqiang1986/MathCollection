@@ -22,7 +22,7 @@
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload one or more images or PDFs of math problems. The agent will extract, classify, solve, and save each one. Multiple files are processed one at a time.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -47,19 +47,12 @@
       <input type="checkbox" name="with_solution" value="1">
       Generate step-by-step solution
     </label>
-    <button type="submit" id="process-btn">Process</button>
+    <button type="submit" id="process-btn">Queue for processing</button>
     <div id="progress-wrap" aria-live="polite">
       <div class="progress-bar"><div></div></div>
-      <div class="progress-text">Processing — this can take a moment…</div>
+      <div class="progress-text">Uploading…</div>
     </div>
   </form>
-
-  {% if result %}
-    <div class="summary">
-      <strong>Agent summary:</strong> {{ result.summary }}<br>
-      <strong>Saved this run:</strong> {{ result.saved | length }} problem(s).
-    </div>
-  {% endif %}
 
   {% if logged_in %}
   <h2>All saved problems (<span id="total-count">…</span>)</h2>

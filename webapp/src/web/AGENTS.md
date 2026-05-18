@@ -22,9 +22,11 @@ HTTP-facing lives here.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the
   raw image under `data/<email>/raw/` (via `storage.raw_uploads_dir()`
-  so it lands on the GCS-Fuse-mounted volume in production), calls
-  `agent.process_image(...)`, re-renders the index with the result
-  summary. Also serves per-user figure PNGs at `/figures/<filename>`.
+  so it lands on the GCS-Fuse-mounted volume in production) and enqueues
+  it in the per-user `raw_queue.db` via `storage.enqueue_raw(...)`.
+  **The web tier no longer calls the agent on upload** — the offline
+  worker in [worker/](../../../worker/) drains the queue. Also serves
+  per-user figure PNGs at `/figures/<filename>`.
 
 ## Conventions
 
@@ -32,7 +34,7 @@ HTTP-facing lives here.
   That decorator binds `storage.set_current_user(storage_email(email))`
   for the duration of the request. The SQLite mirror is created on first
   successful login by [`/auth/callback`](auth.py), which calls
-  [`db_setup.setup.init_user`](../db_setup/setup.py) under the user context.
+  [`common.db_setup.setup.init_user`](../../../common/db_setup/setup.py) under the user context.
   Handlers themselves never create tables. Don't call storage directly
   without the decorator.
 - **`upload_allowed_required` goes AFTER `login_required`.** Login first,

@@ -12,21 +12,23 @@ import json
 import sqlite3
 from pathlib import Path
 
-from lib.storage.paths import index_path, problems_dir
-from lib.storage.sql_index import _connect, _upsert_index_row
-from lib.storage.vocab import Problem
+from common.storage.paths import index_path, problems_dir, queue_path
+from common.storage.sql_index import _connect, _upsert_index_row
+from common.storage.vocab import Problem
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
+QUEUE_SCHEMA_FILE = Path(__file__).resolve().parent / "queue_schema.sql"
 
 
 def init_user() -> None:
     db = index_path()
     db.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db) as conn:
-        _apply_schema(conn)
+        _apply_schema(conn, SCHEMA_FILE)
         schema_v, data_v = conn.execute(
             "SELECT schema_version, data_version FROM schema_version"
         ).fetchone()
+    _init_queue_db()
     if schema_v == data_v:
         return
     _backfill_problems()
@@ -36,11 +38,18 @@ def init_user() -> None:
         )
 
 
-def _apply_schema(conn: sqlite3.Connection) -> None:
-    """Run schema.sql one statement at a time, tolerating duplicate-column
-    errors when ALTER TABLE statements are re-executed on an already-
-    migrated DB. (SQLite has no `ADD COLUMN IF NOT EXISTS`.)"""
-    for stmt in _split_statements(SCHEMA_FILE.read_text()):
+def _init_queue_db() -> None:
+    qdb = queue_path()
+    qdb.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(qdb) as conn:
+        _apply_schema(conn, QUEUE_SCHEMA_FILE)
+
+
+def _apply_schema(conn: sqlite3.Connection, schema_file: Path) -> None:
+    """Run a schema SQL script one statement at a time, tolerating
+    duplicate-column errors when ALTER TABLE statements are re-executed
+    on an already-migrated DB. (SQLite has no `ADD COLUMN IF NOT EXISTS`.)"""
+    for stmt in _split_statements(schema_file.read_text()):
         try:
             conn.execute(stmt)
         except sqlite3.OperationalError as e:

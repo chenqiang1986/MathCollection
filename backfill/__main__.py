@@ -7,8 +7,8 @@ Usage:
 import argparse
 import sys
 
-from db_setup.setup import init_user
-from lib import storage
+from common import storage
+from common.db_setup.setup import init_user
 
 from backfill.classify import classify_problems
 

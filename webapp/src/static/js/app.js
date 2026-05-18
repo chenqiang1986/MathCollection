@@ -26,7 +26,7 @@
   if (form) {
     form.addEventListener("submit", function () {
       submitBtn.disabled = true;
-      submitBtn.textContent = "Processing…";
+      submitBtn.textContent = "Uploading…";
       progress.classList.add("active");
     });
   }

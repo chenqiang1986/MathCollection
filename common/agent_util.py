@@ -14,7 +14,9 @@ from claude_agent_sdk import (
 )
 
 MODEL = "claude-sonnet-4-6"
-PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
+# Shared prompts (solver.md, math_category.md, refine.md) live next to
+# this file under common/prompts/.
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 # SDK stdio JSON buffer cap. The default (1 MiB) overflows on multi-page PDFs
 # whose Read tool results come back as a single base64-bearing JSON message.

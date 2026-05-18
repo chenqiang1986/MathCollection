@@ -1,23 +1,13 @@
-"""Public surface for the agent package — re-exports the orchestrator and
-shared helpers used by callers."""
+"""Webapp-side agent surface: just refine.
 
-from .orchestrator import (
-    ProcessImageInput,
-    ProcessImageResult,
-    process_image,
-    process_images,
-)
-from .problem_store import build_problem_store
+The orchestrator + solver + `process_image` pipeline used by the offline
+worker lives at `worker/agent/`. The webapp's only remaining agent
+dependency is `refine_problem`, hit by `POST /api/problems/<id>/refine`.
+Shared agent helpers (`MODEL`, `log_message`, `PROMPTS_DIR`,
+`MAX_BUFFER_SIZE`) have moved to `common.agent_util` so the worker
+doesn't depend on the webapp.
+"""
+
 from .refine import refine_problem
-from .util import MODEL, log_message
 
-__all__ = [
-    "MODEL",
-    "ProcessImageInput",
-    "ProcessImageResult",
-    "build_problem_store",
-    "log_message",
-    "process_image",
-    "process_images",
-    "refine_problem",
-]
+__all__ = ["refine_problem"]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image
 
-from lib.storage import figures_dir, raw_upload_path
+from common.storage import figures_dir, raw_upload_path
 
 FIGURE_PADDING = 0.015  # 1.5% margin on each side of the model's bbox
 PDF_RENDER_SCALE = 3.0  # 3× the PDF's 72-DPI base (≈216 DPI) for crop quality

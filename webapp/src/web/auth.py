@@ -14,8 +14,8 @@ from flask import (
     session,
     url_for,
 )
-from db_setup.setup import init_user
-from lib import storage
+from common import storage
+from common.db_setup.setup import init_user
 
 UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com", "chenhenrybunny@gmail.com"}
 GUEST_USER = "guest"

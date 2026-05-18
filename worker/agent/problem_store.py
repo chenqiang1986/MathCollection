@@ -10,8 +10,7 @@ been invoked at least once, so the solver cannot skip the check on a
 confident classification."""
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
-
-from lib import storage
+from common import storage
 
 CATEGORY_EDIT_EXAMPLES_LIMIT = 5
 

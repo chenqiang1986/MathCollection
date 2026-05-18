@@ -1,24 +1,30 @@
-# Prompts
+# Prompts (shared)
 
-System prompts for the two Claude agents. **Edit these instead of splicing
+System prompts shared by the webapp's `refine` agent, the worker's
+solver, and `backfill/classify`. **Edit these instead of splicing
 override strings in Python.**
+
+The orchestrator's prompt is worker-only and lives in
+[../../worker/prompts/orchestrator.md](../../worker/prompts/orchestrator.md);
+it is not loaded by anything in this directory.
 
 ## Files
 
-- [orchestrator.md](orchestrator.md) — plain text. Loaded once and used as
-  the `system_prompt` for the outer agent (see
-  [../lib/agent/orchestrator.py](../lib/agent/orchestrator.py)).
 - [math_category.md](math_category.md) — closed list of allowed
   `(category, subcategory)` pairs. Included into `solver.md` so the solver
-  picks from a fixed vocabulary instead of inventing synonyms. Edit this
-  file (not `solver.md`) to add/rename categories.
+  picks from a fixed vocabulary instead of inventing synonyms. Also read
+  directly by [../../backfill/classify.py](../../backfill/classify.py).
+  Edit this file (not `solver.md`) to add/rename categories.
 - [solver.md](solver.md) — Jinja2 template rendered with one variable,
-  `with_solution: bool` (see [../lib/agent/solver.py](../lib/agent/solver.py)).
+  `with_solution: bool` (see
+  [../../worker/agent/solver.py](../../worker/agent/solver.py)).
   Loaded via `FileSystemLoader(PROMPTS_DIR)` so `{% include %}` resolves
   sibling files — currently includes [math_category.md](math_category.md).
-  The two branches must stay aligned with the corresponding `save_problem`
-  tool schema in
-  [../lib/agent/problem_store.py](../lib/agent/problem_store.py):
+  Also `{% include %}`'d by [refine.md](refine.md), which is why it must
+  stay in this shared directory rather than moving under `worker/`.
+  The two `with_solution` branches must stay aligned with the corresponding
+  `save_problem` tool schema in
+  [../../worker/agent/problem_store.py](../../worker/agent/problem_store.py):
   - `with_solution=True` → solver writes a `solution`; tool takes
     `{problem_text, category, solution}`.
   - `with_solution=False` → solver estimates `solve_time_estimated`
@@ -29,6 +35,10 @@ override strings in Python.**
   Both branches must also instruct the solver to call
   `lookup_category_edits` before `save_problem` — the save tool refuses the
   first call until the lookup has been invoked.
+- [refine.md](refine.md) — Jinja2 template for the webapp's refine
+  agent (see
+  [../../webapp/src/lib/agent/refine.py](../../webapp/src/lib/agent/refine.py)).
+  `{% include %}`s `solver.md`.
 
 ## Conventions
 
@@ -39,13 +49,15 @@ override strings in Python.**
 - **The orchestrator must delegate**, not solve. The solver must call its
   `save_problem` tool **exactly once**. If you loosen either rule in the
   prompt, the agent loop and post-processing in
-  [../lib/agent/solver.py](../lib/agent/solver.py) (which asserts
-  `len(saved) == 1`) will break.
-- **Figure bbox/rotation contract** is defined in
-  [orchestrator.md](orchestrator.md): normalized `[x0, y0, x1, y1]` in
-  `[0, 1]` with `x0<x1`, `y0<y1`, plus a clockwise rotation of
-  `0`/`90`/`180`/`270`. Empty list + `0` means no figure. Keep these in
-  sync with [../figures.py](../figures.py).
+  [../../worker/agent/solver.py](../../worker/agent/solver.py) (which
+  asserts `len(saved) == 1`) will break.
+- **Figure bbox/rotation contract** is defined in the orchestrator
+  prompt at
+  [../../worker/prompts/orchestrator.md](../../worker/prompts/orchestrator.md):
+  normalized `[x0, y0, x1, y1]` in `[0, 1]` with `x0<x1`, `y0<y1`, plus
+  a clockwise rotation of `0`/`90`/`180`/`270`. Empty list + `0` means
+  no figure. Keep these in sync with
+  [../figures.py](../figures.py).
 
 ## Don't
 
