@@ -17,7 +17,7 @@ from flask import (
 from db_setup.setup import init_user
 from lib import storage
 
-UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com"}
+UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com", "chenhenrybunny@gmail.com"}
 GUEST_USER = "guest"
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 

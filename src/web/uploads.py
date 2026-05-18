@@ -1,6 +1,6 @@
 """Upload form handler and per-user figure serving."""
 
-import uuid
+import hashlib
 
 from flask import (
     Blueprint,
@@ -12,8 +12,6 @@ from flask import (
     url_for,
 )
 from lib import agent, storage
-from werkzeug.utils import secure_filename
-
 from .auth import login_required, upload_allowed_required
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
@@ -50,9 +48,13 @@ def upload():
         if not image_bytes:
             flash(f"Skipped {file.filename}: empty file.", "error")
             continue
-        safe_name = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+        hasher = hashlib.sha256()
+        hasher.update(image_bytes)
+        hasher.update(file.filename.encode("utf-8"))
+        safe_name = f"{hasher.hexdigest()}.{ext}"
         saved_path = raw_dir / safe_name
-        saved_path.write_bytes(image_bytes)
+        if not saved_path.exists():
+            saved_path.write_bytes(image_bytes)
         inputs.append(
             agent.ProcessImageInput(
                 image_path=saved_path, source_image=safe_name

@@ -12,11 +12,14 @@ solver agents.
 - [orchestrator.py](orchestrator.py) — outer driver. Runs ONE orchestrator
   query whose only tool is `mcp__orchestrator__report_problems`; the model
   reads the image and calls it once with the full structured list. The
-  Python loop then `asyncio.gather`s `solve_problem` over that list with a
-  `SOLVER_CONCURRENCY`-sized semaphore. Sync wrapper `process_image(...)`
-  calls `asyncio.run` internally — do not call it from inside an existing
-  event loop. No natural-language branching happens between problems, so
-  there is no inter-problem agent loop.
+  Python loop stamps each parsed problem with `seq_no` (its 1-indexed
+  position in the source), drops any `(source_image, seq_no)` already
+  present in the index, and then `asyncio.gather`s `solve_problem` over
+  the remaining list with a `SOLVER_CONCURRENCY`-sized semaphore. Sync
+  wrapper `process_image(...)` calls `asyncio.run` internally — do not
+  call it from inside an existing event loop. No natural-language
+  branching happens between problems, so there is no inter-problem agent
+  loop.
 - [solver.py](solver.py) — per-problem inner agent. `solve_problem(parsed,
   source_image, with_solution)` crops the figure via
   [../../figures.py](../../figures.py) if `figure_bbox` is non-empty, then

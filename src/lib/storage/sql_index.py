@@ -23,8 +23,9 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
         """
         INSERT INTO problems
             (id, filename, category, subcategory, solve_time_seconds,
-             solve_time_estimated, created_at, source_exam, year, has_figure)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             solve_time_estimated, created_at, source_exam, year, has_figure,
+             source_image, seq_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             category = excluded.category,
@@ -34,7 +35,9 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             created_at = excluded.created_at,
             source_exam = excluded.source_exam,
             year = excluded.year,
-            has_figure = excluded.has_figure
+            has_figure = excluded.has_figure,
+            source_image = excluded.source_image,
+            seq_no = excluded.seq_no
         """,
         (
             problem.id,
@@ -47,8 +50,23 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             problem.source_exam or "Unknown",
             problem.year or "Unknown",
             1 if (problem.figure_image or "").strip() else 0,
+            problem.source_image or None,
+            problem.seq_no if problem.seq_no is not None else None,
         ),
     )
+
+
+def existing_seq_nos(source_image: str) -> set[int]:
+    """Return the set of seq_no values already saved for this source_image.
+    Used by the orchestrator to skip re-solving problems that were already
+    extracted from the same source file."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT seq_no FROM problems "
+            "WHERE source_image = ? AND seq_no IS NOT NULL",
+            (source_image,),
+        ).fetchall()
+    return {int(r["seq_no"]) for r in rows}
 
 
 def _build_where(

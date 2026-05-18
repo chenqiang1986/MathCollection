@@ -22,7 +22,7 @@ from .problem_io import (
     save_problem,
     update_problem,
 )
-from .sql_index import query_index, sample_index
+from .sql_index import existing_seq_nos, query_index, sample_index
 from .stats import (
     category_counts,
     difficulty_distribution,
@@ -41,6 +41,7 @@ __all__ = [
     "category_edit_examples",
     "delete_problem",
     "difficulty_distribution",
+    "existing_seq_nos",
     "figure_path",
     "figures_dir",
     "get_problem",

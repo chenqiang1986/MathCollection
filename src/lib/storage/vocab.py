@@ -18,6 +18,7 @@ class Problem:
     solution: str = ""
     source_image: str | None = None
     source_page: int | None = None
+    seq_no: int | None = None
     source_exam: str = "Unknown"
     year: str = "Unknown"
     figure_image: str | None = None

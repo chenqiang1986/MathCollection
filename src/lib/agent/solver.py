@@ -26,6 +26,7 @@ async def _run_inner_solver(
     problem_text: str,
     source_image: str | None,
     source_page: int | None = None,
+    seq_no: int | None = None,
     source_exam: str = "Unknown",
     year: str = "Unknown",
     figure_image: str | None = None,
@@ -37,6 +38,7 @@ async def _run_inner_solver(
         source_image,
         saved,
         source_page=source_page,
+        seq_no=seq_no,
         source_exam=source_exam,
         year=year,
         figure_image=figure_image,
@@ -113,6 +115,8 @@ async def solve_problem(
     rotation = int(parsed.get("figure_rotation") or 0)
     page = int(parsed.get("figure_page") or 1)
     source_page = int(parsed.get("source_page") or 1)
+    seq_no_raw = parsed.get("seq_no")
+    seq_no = int(seq_no_raw) if seq_no_raw is not None else None
     source_exam = (parsed.get("source_exam") or "Unknown").strip() or "Unknown"
     year = str(parsed.get("year") or "Unknown").strip() or "Unknown"
 
@@ -128,6 +132,7 @@ async def solve_problem(
         parsed["problem_text"],
         source_image,
         source_page=source_page,
+        seq_no=seq_no,
         source_exam=source_exam,
         year=year,
         figure_image=figure_image,

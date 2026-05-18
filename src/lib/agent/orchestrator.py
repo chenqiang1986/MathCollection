@@ -99,6 +99,30 @@ async def _parse_problems(image_path: Path) -> list[dict]:
     return parsed
 
 
+def _dedup_against_existing(
+    parsed: list[dict], source_image: str | None
+) -> tuple[list[dict], int]:
+    # Stamp each parsed problem with its 1-indexed position in the source.
+    # That position is its seq_no — the stable identity within source_image.
+    for idx, p in enumerate(parsed, start=1):
+        p["seq_no"] = idx
+
+    if not source_image:
+        return parsed, 0
+    already = storage.existing_seq_nos(source_image)
+    if not already:
+        return parsed, 0
+    kept = [p for p in parsed if p["seq_no"] not in already]
+    skipped = len(parsed) - len(kept)
+    if skipped:
+        print(
+            f"[orchestrator] dedup: skipping {skipped} problem(s) "
+            f"already saved for source_image={source_image!r}",
+            flush=True,
+        )
+    return kept, skipped
+
+
 async def _process_image_async(
     image_path: Path,
     source_image: str | None,
@@ -107,6 +131,14 @@ async def _process_image_async(
     parsed = await _parse_problems(image_path)
     if not parsed:
         return ProcessImageResult(saved=[], summary="No problems found.")
+
+    parsed, skipped = _dedup_against_existing(parsed, source_image)
+
+    if not parsed:
+        return ProcessImageResult(
+            saved=[],
+            summary=f"All {skipped} problem(s) already saved; nothing to do.",
+        )
 
     sem = asyncio.Semaphore(SOLVER_CONCURRENCY)
 
@@ -127,6 +159,8 @@ async def _process_image_async(
     results = await asyncio.gather(*(run_one(p) for p in parsed))
     saved = [r for r in results if r is not None]
     summary = f"Saved {len(saved)} of {len(parsed)} problem(s)."
+    if skipped:
+        summary += f" (skipped {skipped} already-saved)"
     return ProcessImageResult(saved=saved, summary=summary)
 
 
