@@ -5,23 +5,38 @@ raw file, claims the oldest one, runs the agent on it, and marks the
 row done or failed. Between files, sleeps `IDLE_SLEEP_SECONDS` then
 rescans.
 
-Quota handling is out-of-band: after each file we probe Anthropic's
-rate-limit headers (`quota.probe_quota`) and sleep until reset if any
-dimension is exhausted. This is deliberate — the orchestrator swallows
-per-problem/per-file exceptions internally, so a 429 never bubbles up
-to `_process_one`, so we couldn't classify it inline even if we tried.
+If a run reports `hit_quota_limit=True`, the file is reverted to pending
+(quota isn't the file's fault, so it doesn't count toward `MAX_ATTEMPTS`)
+and the whole scan loop sleeps until the reported reset timestamp before
+trying again.
 """
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from common import storage
 from common.db_setup.setup import init_user
 
 from . import agent
-from .quota import probe_quota
 
 IDLE_SLEEP_SECONDS = 60
+# Cap how many times a file can be reverted-and-retried on partial saves.
+# After this many `claim_next` cycles produce an incomplete result, we
+# give up and mark it failed so a deterministic per-problem error doesn't
+# loop forever.
+MAX_ATTEMPTS = 3
+# Fallback wait when a quota hit is reported with no `resets_at`.
+DEFAULT_QUOTA_SLEEP_SECONDS = 60 * 60
+
+
+def _seconds_until(reset_at: datetime | None) -> int:
+    if reset_at is None:
+        return DEFAULT_QUOTA_SLEEP_SECONDS
+    delta = (reset_at - datetime.now(timezone.utc)).total_seconds()
+    # Clamp: don't busy-loop if the timestamp is already past, and add a
+    # small safety pad to avoid waking just before the reset lands.
+    return max(60, int(delta) + 5)
 
 
 def _iter_user_emails() -> list[str]:
@@ -38,45 +53,94 @@ def _iter_user_emails() -> list[str]:
     return emails
 
 
-def _process_one(filename: str, with_solution: bool) -> None:
+def _process_one(
+    filename: str, with_solution: bool
+) -> agent.ProcessImageResult:
     raw_path = storage.raw_upload_path(filename)
     if not raw_path.exists():
         raise FileNotFoundError(f"raw file missing on disk: {raw_path}")
-    agent.process_image(
+    return agent.process_image(
         raw_path,
         source_image=filename,
         with_solution=with_solution,
     )
 
 
-def _drain_user(email: str) -> bool:
+def _drain_user(email: str) -> agent.ProcessImageResult | None:
     """Claim and process at most one pending row for this user. Returns
-    True if we did work, False if there was nothing pending. Quota
-    blocking is handled by the caller via `probe_quota()` after each
-    file, not here — see module docstring."""
+    the run's `ProcessImageResult` if work was done, or `None` if there
+    was nothing pending. On a quota hit the file is reverted to pending
+    without consulting `MAX_ATTEMPTS` — the caller is expected to sleep
+    until `result.quota_reset_at`."""
     token = storage.set_current_user(email)
     try:
         init_user()
         item = storage.claim_next()
         if item is None:
-            return False
+            return None
         print(
             f"[worker] {email} processing {item.filename} "
             f"(attempt {item.attempts}, with_solution={item.with_solution})",
             flush=True,
         )
         try:
-            _process_one(item.filename, item.with_solution)
+            result = _process_one(item.filename, item.with_solution)
         except Exception as exc:
             storage.mark_failed(item.filename, error=repr(exc))
             print(
                 f"[worker] {email} FAILED {item.filename}: {exc!r}",
                 flush=True,
             )
-            return True
-        storage.mark_done(item.filename)
-        print(f"[worker] {email} done {item.filename}", flush=True)
-        return True
+            return agent.ProcessImageResult(
+                saved=[], complete=False, summary=f"error: {exc!r}"
+            )
+        if result.hit_quota_limit:
+            storage.revert_to_pending(
+                item.filename,
+                error=(
+                    f"quota hit; will retry after "
+                    f"{result.quota_reset_at}: {result.summary}"
+                ),
+            )
+            print(
+                f"[worker] {email} QUOTA HIT on {item.filename}; reverting "
+                f"to pending (resets_at={result.quota_reset_at})",
+                flush=True,
+            )
+        elif result.complete:
+            storage.mark_done(item.filename)
+            print(
+                f"[worker] {email} done {item.filename}: {result.summary}",
+                flush=True,
+            )
+        elif item.attempts >= MAX_ATTEMPTS:
+            storage.mark_failed(
+                item.filename,
+                error=(
+                    f"incomplete after {item.attempts} attempts: "
+                    f"{result.summary}"
+                ),
+            )
+            print(
+                f"[worker] {email} GIVING UP on {item.filename} "
+                f"after {item.attempts} attempts: {result.summary}",
+                flush=True,
+            )
+        else:
+            storage.revert_to_pending(
+                item.filename,
+                error=(
+                    f"partial save on attempt {item.attempts}; will retry: "
+                    f"{result.summary}"
+                ),
+            )
+            print(
+                f"[worker] {email} INCOMPLETE {item.filename} "
+                f"(attempt {item.attempts}/{MAX_ATTEMPTS}), reverting to "
+                f"pending: {result.summary}",
+                flush=True,
+            )
+        return result
     finally:
         storage.reset_current_user(token)
 
@@ -103,30 +167,32 @@ def run_forever() -> None:
     _reclaim_all_stale()
     while True:
         did_work = False
-        quota_blocked = False
+        quota_reset_at: datetime | None = None
         for email in _iter_user_emails():
             try:
-                if not _drain_user(email):
-                    continue
-                did_work = True
+                result = _drain_user(email)
             except Exception as exc:
                 print(
                     f"[worker] {email} unexpected error draining: {exc!r}",
                     flush=True,
                 )
                 continue
-            signal = probe_quota()
-            if signal.is_quota:
-                print(
-                    f"[worker] quota blocked: {signal.detail}",
-                    flush=True,
-                )
-                time.sleep(signal.sleep_seconds)
-                # After waking, restart the user scan so newly-pending
-                # work elsewhere gets a fair shot.
-                quota_blocked = True
+            if result is None:
+                continue
+            did_work = True
+            if result.hit_quota_limit:
+                # Quota is global per account, not per-user — no point
+                # draining the next user, they'll just hit it too.
+                quota_reset_at = result.quota_reset_at
                 break
-        if quota_blocked:
+        if quota_reset_at is not None:
+            sleep_s = _seconds_until(quota_reset_at)
+            print(
+                f"[worker] quota blocked; sleeping {sleep_s}s "
+                f"(resets_at={quota_reset_at})",
+                flush=True,
+            )
+            time.sleep(sleep_s)
             continue
         if did_work:
             print(
@@ -142,15 +208,14 @@ def run_once() -> int:
     processed = 0
     for email in _iter_user_emails():
         while True:
-            did = _drain_user(email)
-            if not did:
+            result = _drain_user(email)
+            if result is None:
                 break
             processed += 1
-            signal = probe_quota()
-            if signal.is_quota:
+            if result.hit_quota_limit:
                 print(
-                    f"[worker] quota blocked during --once: {signal.detail}; "
-                    "aborting drain",
+                    f"[worker] quota hit during --once "
+                    f"(resets_at={result.quota_reset_at}); aborting drain",
                     flush=True,
                 )
                 return processed

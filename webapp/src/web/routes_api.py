@@ -87,6 +87,18 @@ def summary():
     return jsonify(storage.index_summary())
 
 
+@bp.route("/queue", methods=["GET"])
+@login_required
+def queue_state():
+    items = storage.list_items(limit=500)
+    return jsonify(
+        {
+            "counts": storage.status_counts(),
+            "items": [item._asdict() for item in items],
+        }
+    )
+
+
 @bp.route("/problems", methods=["GET"])
 @login_required
 def problems():

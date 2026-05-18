@@ -22,7 +22,7 @@
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if logged_in %} <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if logged_in %} <a href="{{ url_for('pages.queue') }}">Processing queue →</a> · <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}

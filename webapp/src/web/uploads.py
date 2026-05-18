@@ -40,6 +40,7 @@ def upload():
     with_solution = bool(request.form.get("with_solution"))
 
     queued = 0
+    retried = 0
     already_queued = 0
     for file in files:
         ext = (
@@ -64,8 +65,11 @@ def upload():
         saved_path = raw_dir / safe_name
         if not saved_path.exists():
             saved_path.write_bytes(image_bytes)
-        if storage.enqueue_raw(safe_name, with_solution=with_solution):
+        result = storage.enqueue_raw(safe_name, with_solution=with_solution)
+        if result == "new":
             queued += 1
+        elif result == "retried":
+            retried += 1
         else:
             already_queued += 1
 
@@ -74,10 +78,15 @@ def upload():
             f"Queued {queued} file(s) for offline processing.",
             "success",
         )
+    if retried:
+        flash(
+            f"Re-queued {retried} previously processed/failed file(s) "
+            "for another run.",
+            "success",
+        )
     if already_queued:
         flash(
-            f"{already_queued} file(s) were already queued or processed; "
-            "skipped.",
+            f"{already_queued} file(s) were already in flight; skipped.",
             "success",
         )
     return redirect(url_for("pages.index"))

@@ -27,11 +27,13 @@ from .queue import (
     QueueItem,
     claim_next,
     enqueue_raw,
+    list_items,
     mark_done,
     mark_failed,
     pending_count,
     reclaim_stale_processing,
     revert_to_pending,
+    status_counts,
 )
 from .sql_index import existing_seq_nos, query_index, sample_index
 from .stats import (
@@ -61,6 +63,7 @@ __all__ = [
     "get_problem",
     "index_path",
     "index_summary",
+    "list_items",
     "list_problems",
     "mark_done",
     "mark_failed",
@@ -78,6 +81,7 @@ __all__ = [
     "sanitize_email",
     "save_problem",
     "set_current_user",
+    "status_counts",
     "subcategory_counts",
     "update_problem",
     "user_dir",

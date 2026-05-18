@@ -3,6 +3,7 @@ source image/PDF into a structured list, then a plain Python loop fans the
 list out to the solver with bounded concurrency."""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -15,6 +16,7 @@ from claude_agent_sdk import (
 from common import storage
 from common.agent_util import MAX_BUFFER_SIZE, MODEL, log_message
 
+from ..quota import QuotaHit, detect_in_message as detect_quota_in_message, later_reset
 from .solver import solve_problem
 
 ORCHESTRATOR_MAX_TURNS = 4
@@ -36,7 +38,18 @@ class ProcessImageInput(NamedTuple):
 
 class ProcessImageResult(NamedTuple):
     saved: list[storage.Problem]
+    # `complete` is False when we know we didn't save every problem we
+    # tried to (a solver swallowed a quota/network error, or the orchestrator
+    # parse itself failed). The worker uses this to revert the row to
+    # pending so it retries instead of being marked done with partial work.
+    complete: bool
     summary: str
+    # `hit_quota_limit` is True if any solver / the parse step saw a
+    # rejected `RateLimitEvent`. `quota_reset_at` is the furthest-out
+    # reset timestamp we saw (UTC). The worker uses these to sleep until
+    # the quota window opens up before its next scan.
+    hit_quota_limit: bool = False
+    quota_reset_at: datetime | None = None
 
 
 def _build_report_tool(parsed: list[dict]):
@@ -98,6 +111,10 @@ async def _parse_problems(image_path: Path) -> list[dict]:
     print("[orchestrator] start", flush=True)
     async for message in query(prompt=prompt, options=options):
         log_message(message)
+        quota = detect_quota_in_message(message)
+        if quota is not None:
+            print(f"[orchestrator] quota hit during parse: {quota.detail}", flush=True)
+            raise quota
     print(f"[orchestrator] parsed {len(parsed)} problem(s)", flush=True)
     return parsed
 
@@ -131,40 +148,81 @@ async def _process_image_async(
     source_image: str | None,
     with_solution: bool = True,
 ) -> ProcessImageResult:
-    parsed = await _parse_problems(image_path)
+    try:
+        parsed = await _parse_problems(image_path)
+    except QuotaHit as q:
+        return ProcessImageResult(
+            saved=[],
+            complete=False,
+            summary=f"quota hit during parse: {q.detail}",
+            hit_quota_limit=True,
+            quota_reset_at=q.reset_at,
+        )
     if not parsed:
-        return ProcessImageResult(saved=[], summary="No problems found.")
+        return ProcessImageResult(
+            saved=[], complete=True, summary="No problems found."
+        )
 
     parsed, skipped = _dedup_against_existing(parsed, source_image)
 
     if not parsed:
         return ProcessImageResult(
             saved=[],
+            complete=True,
             summary=f"All {skipped} problem(s) already saved; nothing to do.",
         )
 
+    expected = len(parsed)
     sem = asyncio.Semaphore(SOLVER_CONCURRENCY)
 
-    async def run_one(p: dict) -> storage.Problem | None:
+    async def run_one(p: dict) -> tuple[storage.Problem | None, QuotaHit | None]:
         async with sem:
             try:
-                return await solve_problem(
+                problem = await solve_problem(
                     p, source_image, with_solution=with_solution
                 )
+                return problem, None
+            except QuotaHit as q:
+                print(
+                    f"[orchestrator] solver quota hit for "
+                    f"{p.get('problem_text', '')[:80]!r}: {q.detail}",
+                    flush=True,
+                )
+                return None, q
             except Exception as e:
                 print(
                     f"[orchestrator] solver failed for "
                     f"{p.get('problem_text', '')[:80]!r}: {e}",
                     flush=True,
                 )
-                return None
+                return None, None
 
-    results = await asyncio.gather(*(run_one(p) for p in parsed))
-    saved = [r for r in results if r is not None]
-    summary = f"Saved {len(saved)} of {len(parsed)} problem(s)."
+    outcomes = await asyncio.gather(*(run_one(p) for p in parsed))
+    saved = [problem for problem, _ in outcomes if problem is not None]
+    quota_hits = [q for _, q in outcomes if q is not None]
+    hit_quota_limit = bool(quota_hits)
+    quota_reset_at: datetime | None = None
+    for q in quota_hits:
+        quota_reset_at = later_reset(quota_reset_at, q.reset_at)
+
+    complete = len(saved) == expected
+    summary = f"Saved {len(saved)} of {expected} problem(s)."
+    if not complete:
+        summary += f" (incomplete: {expected - len(saved)} failed)"
     if skipped:
         summary += f" (skipped {skipped} already-saved)"
-    return ProcessImageResult(saved=saved, summary=summary)
+    if hit_quota_limit:
+        summary += (
+            f" (quota hit on {len(quota_hits)} solver(s); "
+            f"resets_at={quota_reset_at})"
+        )
+    return ProcessImageResult(
+        saved=saved,
+        complete=complete,
+        summary=summary,
+        hit_quota_limit=hit_quota_limit,
+        quota_reset_at=quota_reset_at,
+    )
 
 
 async def _process_images_async(
@@ -176,6 +234,9 @@ async def _process_images_async(
     failure on one file does not abort the others."""
     all_saved: list[storage.Problem] = []
     per_file_summaries: list[str] = []
+    all_complete = True
+    hit_quota_limit = False
+    quota_reset_at: datetime | None = None
     for idx, inp in enumerate(inputs, start=1):
         label = inp.source_image or inp.image_path.name
         print(
@@ -192,9 +253,15 @@ async def _process_images_async(
                 flush=True,
             )
             per_file_summaries.append(f"{label}: error ({e})")
+            all_complete = False
             continue
         all_saved.extend(result.saved)
         per_file_summaries.append(f"{label}: {result.summary}")
+        if not result.complete:
+            all_complete = False
+        if result.hit_quota_limit:
+            hit_quota_limit = True
+            quota_reset_at = later_reset(quota_reset_at, result.quota_reset_at)
 
     summary = (
         f"Processed {len(inputs)} file(s); saved {len(all_saved)} "
@@ -202,7 +269,13 @@ async def _process_images_async(
     )
     if per_file_summaries:
         summary += " | " + " | ".join(per_file_summaries)
-    return ProcessImageResult(saved=all_saved, summary=summary)
+    return ProcessImageResult(
+        saved=all_saved,
+        complete=all_complete,
+        summary=summary,
+        hit_quota_limit=hit_quota_limit,
+        quota_reset_at=quota_reset_at,
+    )
 
 
 def process_images(

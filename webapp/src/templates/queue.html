@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Math Collection — Queue</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script defer src="{{ url_for('static', filename='js/queue.js') }}"></script>
+  <style>
+    .queue-summary { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+    .queue-summary .pill {
+      padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid #ddd;
+      background: #fafafa; font-size: 0.9rem;
+    }
+    .queue-summary .pill strong { margin-right: 0.3rem; }
+    .queue-summary .pill.processing { background: #fff7e6; border-color: #f0c674; }
+    .queue-summary .pill.pending { background: #eef5ff; border-color: #9bbcdf; }
+    .queue-summary .pill.failed { background: #fff5f5; border-color: #fbb; }
+    .queue-summary .pill.done { background: #f0fff4; border-color: #b7e0c2; }
+    .queue-section { margin-top: 1.5rem; }
+    .queue-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .queue-table th, .queue-table td {
+      text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee;
+      vertical-align: top; word-break: break-word;
+    }
+    .queue-table th { background: #f7f7f7; font-weight: 600; }
+    .queue-table .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+    .queue-table .err { color: #b00; font-size: 0.85rem; }
+    .queue-empty { color: #888; font-style: italic; padding: 0.5rem 0; }
+    .queue-controls { display: flex; gap: 0.75rem; align-items: center; }
+    .queue-controls label { font-size: 0.9rem; color: #555; }
+  </style>
+</head>
+<body>
+  <div class="user-bar">
+    {% if current_user %}
+      <span class="user-info">
+        {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar">{% endif %}
+        Signed in as <strong>{{ current_user.email }}</strong>
+      </span>
+      <a href="{{ url_for('auth.logout') }}" class="user-action">Sign out</a>
+    {% endif %}
+  </div>
+  <h1>Processing queue</h1>
+  <p class="sub">
+    <a href="{{ url_for('pages.index') }}">← Back to collection</a>
+    &nbsp;·&nbsp;
+    <a href="{{ url_for('pages.stats') }}">View stats →</a>
+  </p>
+
+  <div class="queue-controls">
+    <button type="button" id="refresh-btn">Refresh now</button>
+    <label>
+      <input type="checkbox" id="autorefresh" checked> Auto-refresh every 5s
+    </label>
+    <span id="last-updated" class="progress-text"></span>
+  </div>
+
+  <div class="queue-summary" id="summary"></div>
+
+  <section class="queue-section">
+    <h2>Now processing</h2>
+    <div id="processing-wrap"><p class="queue-empty">Loading…</p></div>
+  </section>
+
+  <section class="queue-section">
+    <h2>Pending (queued)</h2>
+    <div id="pending-wrap"><p class="queue-empty">Loading…</p></div>
+  </section>
+
+  <section class="queue-section">
+    <h2>Recently failed</h2>
+    <div id="failed-wrap"><p class="queue-empty">Loading…</p></div>
+  </section>
+
+  <section class="queue-section">
+    <h2>Recently completed</h2>
+    <div id="done-wrap"><p class="queue-empty">Loading…</p></div>
+  </section>
+</body>
+</html>

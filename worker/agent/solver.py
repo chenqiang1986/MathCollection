@@ -11,6 +11,7 @@ from common import figures, storage
 from common.agent_util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 from jinja2 import Environment, FileSystemLoader
 
+from ..quota import detect_in_message as detect_quota_in_message
 from .problem_store import build_problem_store
 
 SOLVER_MAX_TURNS = 7
@@ -85,6 +86,10 @@ async def _run_inner_solver(
     started = time.monotonic()
     async for message in query(prompt=prompt, options=options):
         log_message(message)
+        quota = detect_quota_in_message(message)
+        if quota is not None:
+            print(f"[solver] quota hit: {quota.detail}", flush=True)
+            raise quota
     elapsed = time.monotonic() - started
     print(f"[solver] done in {elapsed:.2f}s", flush=True)
 

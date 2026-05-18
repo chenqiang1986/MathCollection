@@ -25,3 +25,9 @@ def index():
 @login_required
 def stats():
     return render_template("stats.html")
+
+
+@bp.route("/queue", methods=["GET"])
+@login_required
+def queue():
+    return render_template("queue.html")

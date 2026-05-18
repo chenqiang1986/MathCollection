@@ -8,7 +8,9 @@ and marks them `done` or `failed`. Schema lives in
 
 import sqlite3
 from datetime import datetime, timezone
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+EnqueueResult = Literal["new", "retried", "skipped"]
 
 from .paths import queue_path, user_dir
 
@@ -48,20 +50,47 @@ def _row_to_item(row: sqlite3.Row) -> QueueItem:
     )
 
 
-def enqueue_raw(filename: str, with_solution: bool) -> bool:
-    """Insert a pending row for `filename`. No-op if the row already exists
-    (file content is hashed, so same content + name is the same row).
-    Returns True if a new row was inserted."""
+def enqueue_raw(filename: str, with_solution: bool) -> EnqueueResult:
+    """Insert a pending row for `filename`, or re-queue an existing
+    `failed`/`done` row so the user can retry or re-run it. Rows already in
+    `pending` or `processing` are left alone.
+
+    Returns "new" for a fresh insert, "retried" if an existing terminal row
+    was flipped back to pending, "skipped" if the row was already in flight."""
     with _connect() as conn:
-        cur = conn.execute(
-            """
-            INSERT OR IGNORE INTO raw_files
-                (filename, with_solution, status, queued_at)
-            VALUES (?, ?, 'pending', ?)
-            """,
-            (filename, 1 if with_solution else 0, _now()),
-        )
-        return cur.rowcount > 0
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT status FROM raw_files WHERE filename = ?", (filename,)
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO raw_files
+                    (filename, with_solution, status, queued_at)
+                VALUES (?, ?, 'pending', ?)
+                """,
+                (filename, 1 if with_solution else 0, _now()),
+            )
+            conn.execute("COMMIT")
+            return "new"
+        if existing["status"] in ("failed", "done"):
+            conn.execute(
+                """
+                UPDATE raw_files
+                SET status = 'pending',
+                    with_solution = ?,
+                    queued_at = ?,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    last_error = NULL
+                WHERE filename = ?
+                """,
+                (1 if with_solution else 0, _now(), filename),
+            )
+            conn.execute("COMMIT")
+            return "retried"
+        conn.execute("COMMIT")
+        return "skipped"
 
 
 def claim_next() -> QueueItem | None:
@@ -145,6 +174,52 @@ def pending_count() -> int:
             "SELECT COUNT(*) AS n FROM raw_files WHERE status = 'pending'"
         ).fetchone()
     return int(row["n"])
+
+
+def status_counts() -> dict[str, int]:
+    """Return row counts grouped by status (pending/processing/done/failed)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM raw_files GROUP BY status"
+        ).fetchall()
+    return {row["status"]: int(row["n"]) for row in rows}
+
+
+def list_items(
+    statuses: tuple[str, ...] | None = None, limit: int = 200
+) -> list[QueueItem]:
+    """Return queue items, optionally filtered to specific statuses.
+
+    Ordered so in-flight work surfaces first: processing → pending (oldest
+    first) → failed/done (most recently finished first). `limit` caps the
+    total rows returned across all statuses."""
+    order = (
+        "CASE status "
+        "WHEN 'processing' THEN 0 "
+        "WHEN 'pending' THEN 1 "
+        "WHEN 'failed' THEN 2 "
+        "WHEN 'done' THEN 3 "
+        "ELSE 4 END"
+    )
+    params: tuple = ()
+    where = ""
+    if statuses:
+        placeholders = ",".join("?" * len(statuses))
+        where = f"WHERE status IN ({placeholders})"
+        params = tuple(statuses)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM raw_files
+            {where}
+            ORDER BY {order},
+                     COALESCE(finished_at, started_at, queued_at) DESC,
+                     queued_at ASC
+            LIMIT ?
+            """,
+            params + (int(limit),),
+        ).fetchall()
+    return [_row_to_item(r) for r in rows]
 
 
 def reclaim_stale_processing() -> int:
