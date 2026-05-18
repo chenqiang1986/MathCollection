@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS problems (
 ALTER TABLE problems ADD COLUMN subcategory TEXT NOT NULL DEFAULT '';
 ALTER TABLE problems ADD COLUMN source_exam TEXT NOT NULL DEFAULT 'Unknown';
 ALTER TABLE problems ADD COLUMN year TEXT NOT NULL DEFAULT 'Unknown';
+ALTER TABLE problems ADD COLUMN has_figure INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_category ON problems(category);
 CREATE INDEX IF NOT EXISTS idx_category_sub ON problems(category, subcategory);
@@ -45,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_created_at ON problems(created_at);
 CREATE INDEX IF NOT EXISTS idx_solve_time ON problems(solve_time_seconds);
 CREATE INDEX IF NOT EXISTS idx_source_exam ON problems(source_exam);
 CREATE INDEX IF NOT EXISTS idx_year ON problems(year);
+CREATE INDEX IF NOT EXISTS idx_has_figure ON problems(has_figure);
 
 CREATE TABLE IF NOT EXISTS category_edits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,4 +65,4 @@ CREATE INDEX IF NOT EXISTS idx_edits_from_sub ON category_edits(from_category, f
 
 -- Bump the literal below whenever you add a new ALTER above. The next
 -- startup will detect DATA_VERSION < SCHEMA_VERSION and trigger a backfill.
-UPDATE schema_version SET schema_version = 4;
+UPDATE schema_version SET schema_version = 5;

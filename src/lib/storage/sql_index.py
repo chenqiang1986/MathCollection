@@ -23,8 +23,8 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
         """
         INSERT INTO problems
             (id, filename, category, subcategory, solve_time_seconds,
-             solve_time_estimated, created_at, source_exam, year)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             solve_time_estimated, created_at, source_exam, year, has_figure)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             category = excluded.category,
@@ -33,7 +33,8 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             solve_time_estimated = excluded.solve_time_estimated,
             created_at = excluded.created_at,
             source_exam = excluded.source_exam,
-            year = excluded.year
+            year = excluded.year,
+            has_figure = excluded.has_figure
         """,
         (
             problem.id,
@@ -45,6 +46,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             problem.created_at,
             problem.source_exam or "Unknown",
             problem.year or "Unknown",
+            1 if (problem.figure_image or "").strip() else 0,
         ),
     )
 
@@ -57,6 +59,7 @@ def _build_where(
     full_range_max: float | None = None,
     source_exam: str | None = None,
     year: str | None = None,
+    has_figure: bool | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause. If min_time/max_time covers the full slider range,
     do not exclude rows with NULL solve_time_seconds."""
@@ -74,6 +77,10 @@ def _build_where(
     if year:
         where.append("year = ?")
         params.append(year)
+    if has_figure is True:
+        where.append("has_figure = 1")
+    elif has_figure is False:
+        where.append("has_figure = 0")
     range_active = False
     if min_time is not None and (full_range_max is None or min_time > 0):
         range_active = True
@@ -101,10 +108,11 @@ def query_index(
     full_range_max: float | None = None,
     source_exam: str | None = None,
     year: str | None = None,
+    has_figure: bool | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, year,
+        source_exam, year, has_figure,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -131,10 +139,11 @@ def sample_index(
     full_range_max: float | None = None,
     source_exam: str | None = None,
     year: str | None = None,
+    has_figure: bool | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, year,
+        source_exam, year, has_figure,
     )
     with _connect() as conn:
         rows = conn.execute(

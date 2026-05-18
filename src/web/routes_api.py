@@ -29,6 +29,13 @@ def _parse_filters() -> dict:
     source_exam = request.args.get("source_exam") or None
     year = request.args.get("year") or None
     full_range_max = _parse_float("range_max")
+    raw_has_figure = request.args.get("has_figure")
+    if raw_has_figure == "1":
+        has_figure: bool | None = True
+    elif raw_has_figure == "0":
+        has_figure = False
+    else:
+        has_figure = None
     return {
         "category": category,
         "subcategory": subcategory,
@@ -37,6 +44,7 @@ def _parse_filters() -> dict:
         "full_range_max": full_range_max,
         "source_exam": source_exam,
         "year": year,
+        "has_figure": has_figure,
     }
 
 

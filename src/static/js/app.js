@@ -37,6 +37,7 @@
   const subSel = document.getElementById("filter-subcategory");
   const examSel = document.getElementById("filter-exam");
   const yearSel = document.getElementById("filter-year");
+  const figureSel = document.getElementById("filter-figure");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -172,6 +173,7 @@
     if (subSel && subSel.value) params.set("subcategory", subSel.value);
     if (examSel && examSel.value) params.set("source_exam", examSel.value);
     if (yearSel && yearSel.value) params.set("year", yearSel.value);
+    if (figureSel && figureSel.value) params.set("has_figure", figureSel.value);
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
@@ -216,6 +218,7 @@
       (subSel && subSel.value) ||
       (examSel && examSel.value) ||
       (yearSel && yearSel.value) ||
+      (figureSel && figureSel.value) ||
       rangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
@@ -703,6 +706,7 @@
   if (subSel) subSel.addEventListener("change", onFilterChange);
   if (examSel) examSel.addEventListener("change", onFilterChange);
   if (yearSel) yearSel.addEventListener("change", onFilterChange);
+  if (figureSel) figureSel.addEventListener("change", onFilterChange);
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
 
