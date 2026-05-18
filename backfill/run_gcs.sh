@@ -3,7 +3,7 @@
 # data directory down, running the backfill locally, then syncing it back up.
 #
 # Usage:
-#   ./src/backfill/run_gcs.sh classify --email user@example.com [--mode missing|all] [--dry-run]
+#   ./backfill/run_gcs.sh classify --email user@example.com [--mode missing|all] [--dry-run]
 #
 # Env overrides:
 #   BUCKET   GCS bucket name (default: math_mistake_tracker_bucket)
@@ -13,7 +13,7 @@ set -euo pipefail
 BUCKET="${BUCKET:-math_mistake_tracker_bucket}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DATA_DIR="${REPO_ROOT}/data"
 
 if [[ $# -lt 1 ]]; then
