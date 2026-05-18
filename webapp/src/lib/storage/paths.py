@@ -4,7 +4,7 @@ import contextvars
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
 _CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("current_user")

@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src ./src
+COPY src ./webapp/src
 
 RUN mkdir -p /app/data
 
@@ -23,7 +23,7 @@ EXPOSE 8080
 # Cloud Run injects $PORT. Bind gunicorn to it. One worker because the app
 # uses a per-request SQLite file on a GCS-Fuse-mounted volume.
 CMD exec gunicorn \
-    --chdir src \
+    --chdir webapp/src \
     --bind "0.0.0.0:${PORT}" \
     --workers 1 \
     --threads 8 \
