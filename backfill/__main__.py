@@ -2,6 +2,8 @@
 
 Usage:
     python -m backfill classify --email <email> [--mode missing|all] [--dry-run]
+    python -m backfill subexam --email <email> [--mode missing|all]
+        [--dry-run] [--update-exam]
 """
 
 import argparse
@@ -11,6 +13,7 @@ from common import storage
 from common.db_setup.setup import init_user
 
 from backfill.classify import classify_problems
+from backfill.subexam import backfill_subexams
 
 
 def main() -> int:
@@ -43,6 +46,43 @@ def main() -> int:
         help="Print proposed (category, subcategory) without writing.",
     )
 
+    sub_x = sub.add_parser(
+        "subexam",
+        help=(
+            "Scan raw source files to identify each one's sub-round "
+            "(BMT algebra/discrete/..., MathCounts sprint/target/team, "
+            "etc.) and apply it to every problem extracted from that "
+            "file."
+        ),
+    )
+    sub_x.add_argument(
+        "--email", help="The user email whose problems to backfill."
+    )
+    sub_x.add_argument(
+        "--mode",
+        choices=["missing", "all"],
+        default="missing",
+        help=(
+            "missing (default): only update problems with empty subexam. "
+            "all: also overwrite existing non-empty subexams when the "
+            "scan disagrees."
+        ),
+    )
+    sub_x.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print proposed updates without writing.",
+    )
+    sub_x.add_argument(
+        "--update-exam",
+        action="store_true",
+        help=(
+            "Also fix source_exam when the existing value is empty or "
+            "'Unknown'. Off by default — the orchestrator already "
+            "captures source_exam at scan time."
+        ),
+    )
+
     args = parser.parse_args()
     storage.set_current_user(args.email)
     init_user()
@@ -53,6 +93,19 @@ def main() -> int:
         )
         suffix = " (dry run, no writes)" if args.dry_run else ""
         print(f"[backfill] done: {updated} of {targeted} updated{suffix}.")
+        return 0
+    if args.task == "subexam":
+        files, targeted, updated, skipped = backfill_subexams(
+            mode=args.mode,
+            dry_run=args.dry_run,
+            update_exam=args.update_exam,
+        )
+        suffix = " (dry run, no writes)" if args.dry_run else ""
+        print(
+            f"[backfill] done: scanned {files} file(s); "
+            f"{updated} of {targeted} matched problem(s) updated; "
+            f"{skipped} problem(s) had no matching raw file{suffix}."
+        )
         return 0
     return 1
 

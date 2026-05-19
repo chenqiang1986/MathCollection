@@ -96,3 +96,9 @@ def upload():
 @login_required
 def serve_figure(filename):
     return send_from_directory(storage.figures_dir(), filename)
+
+
+@bp.route("/raw/<path:filename>", methods=["GET"])
+@login_required
+def serve_raw(filename):
+    return send_from_directory(storage.raw_uploads_dir(), filename)

@@ -124,11 +124,15 @@
     const yearText = p.year && p.year !== "Unknown" ? p.year : "";
     const sourceLabel = [yearText, examText].filter(Boolean).join(" · ");
     const sourceSpan = sourceLabel ? `<span class="source">${escapeHtml(sourceLabel)}</span>` : "";
+    const rawLinkSpan = p.source_image
+      ? `<span class="raw-link"><a href="/raw/${encodeURIComponent(p.source_image)}" target="_blank" rel="noopener">raw${p.source_page ? ` p${p.source_page}` : ""}</a></span>`
+      : "";
 
     let html = actionButtons +
       `<h3>${heading}</h3>` +
       `<div class="meta">` +
         sourceSpan +
+        rawLinkSpan +
         `<span>${escapeHtml((p.created_at || "").slice(0, 19).replace("T", " "))}</span>` +
         `<span>${escapeHtml(p.id.slice(0, 8))}</span>` +
       `</div>` +
