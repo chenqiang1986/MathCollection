@@ -26,6 +26,15 @@ For each problem, provide these fields:
   e.g. `AMC10`, `AMC12`, `AIME`, `BMT`, `ARML`, `HMMT`, `Putnam`, etc.
   Use the canonical short form without spaces. `Unknown` if the source
   has no competition info.
+- `subexam`: the sub-event/round within the competition when the source
+  is structured into named tests. Use the lowercase short form, e.g.:
+  - BMT → `general`, `algebra`, `discrete`, `calculus`, `geometry`
+  - MathCounts → `sprint`, `target`, `team`
+  - HMMT → `general`, `algebra`, `combinatorics`, `geometry`, `team`,
+    `guts`, etc.
+  Apply the same `subexam` to every problem under that section header.
+  Use an empty string `""` for competitions that have no sub-events
+  (e.g. AMC10, AMC12, AIME) or when the source doesn't indicate one.
 - `year`: the 4-digit competition year as a string (e.g. `2024`).
   `Unknown` if not present in the source.
 - `source_page`: the 1-indexed page number of the source PDF where this

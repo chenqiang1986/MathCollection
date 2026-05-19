@@ -36,6 +36,7 @@
   const catSel = document.getElementById("filter-category");
   const subSel = document.getElementById("filter-subcategory");
   const examSel = document.getElementById("filter-exam");
+  const subexamSel = document.getElementById("filter-subexam");
   const yearSel = document.getElementById("filter-year");
   const figureSel = document.getElementById("filter-figure");
   const minInput = document.getElementById("filter-time-min");
@@ -57,6 +58,8 @@
   let knownCategories = [];
   // Map { category: [subcategory, ...] } returned by /api/summary.
   let subcategoryMap = {};
+  // Map { exam: [subexam, ...] } returned by /api/summary.
+  let subexamMap = {};
   // Flat set of all subcategories across categories (for datalist on edit).
   let knownSubcategories = [];
 
@@ -174,6 +177,7 @@
     if (catSel && catSel.value) params.set("category", catSel.value);
     if (subSel && subSel.value) params.set("subcategory", subSel.value);
     if (examSel && examSel.value) params.set("source_exam", examSel.value);
+    if (subexamSel && subexamSel.value) params.set("subexam", subexamSel.value);
     if (yearSel && yearSel.value) params.set("year", yearSel.value);
     if (figureSel && figureSel.value) params.set("has_figure", figureSel.value);
     if (minInput) params.set("min_time", minInput.value);
@@ -219,6 +223,7 @@
       (catSel && catSel.value) ||
       (subSel && subSel.value) ||
       (examSel && examSel.value) ||
+      (subexamSel && subexamSel.value) ||
       (yearSel && yearSel.value) ||
       (figureSel && figureSel.value) ||
       rangeActive();
@@ -698,6 +703,39 @@
     });
   }
 
+  function refreshSubexamSelect() {
+    // Populate the subexam dropdown from the currently selected exam.
+    // With no exam selected, show every distinct subexam across all exams.
+    if (!subexamSel) return;
+    const previousValue = subexamSel.value;
+    const exam = examSel && examSel.value;
+    let options;
+    if (exam) {
+      options = (subexamMap[exam] || []).slice();
+    } else {
+      const seen = new Set();
+      options = [];
+      Object.values(subexamMap).forEach(list => {
+        list.forEach(s => {
+          if (!seen.has(s)) { seen.add(s); options.push(s); }
+        });
+      });
+      options.sort();
+    }
+    subexamSel.innerHTML = `<option value="">All</option>`;
+    options.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s.replace(/\b\w/g, ch => ch.toUpperCase());
+      subexamSel.appendChild(opt);
+    });
+    if (previousValue && options.indexOf(previousValue) !== -1) {
+      subexamSel.value = previousValue;
+    } else {
+      subexamSel.value = "";
+    }
+  }
+
   function refreshSubcategorySelect() {
     // Populate the subcategory filter dropdown based on the currently
     // selected category. With no category selected, show every known
@@ -840,6 +878,8 @@
       });
     }
     populateSelect(examSel, summary.exams || []);
+    subexamMap = summary.subexams || {};
+    refreshSubexamSelect();
     populateSelect(yearSel, summary.years || []);
     knownCategories = (summary.categories || []).slice();
     subcategoryMap = summary.subcategories || {};
@@ -860,7 +900,11 @@
     onFilterChange();
   });
   if (subSel) subSel.addEventListener("change", onFilterChange);
-  if (examSel) examSel.addEventListener("change", onFilterChange);
+  if (examSel) examSel.addEventListener("change", () => {
+    refreshSubexamSelect();
+    onFilterChange();
+  });
+  if (subexamSel) subexamSel.addEventListener("change", onFilterChange);
   if (yearSel) yearSel.addEventListener("change", onFilterChange);
   if (figureSel) figureSel.addEventListener("change", onFilterChange);
   if (minInput) minInput.addEventListener("input", onSliderInput);

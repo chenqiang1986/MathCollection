@@ -20,6 +20,7 @@ class Problem:
     source_page: int | None = None
     seq_no: int | None = None
     source_exam: str = "Unknown"
+    subexam: str = ""
     year: str = "Unknown"
     figure_image: str | None = None
     figure_bbox: list[float] | None = None

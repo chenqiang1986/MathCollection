@@ -27,7 +27,7 @@ from ..quota import QuotaHit, detect_in_message as detect_quota_in_message, late
 from .problem_store import UNCLASSIFIED_CATEGORY, build_problem_store
 from .solver import solve_problem
 
-ORCHESTRATOR_MAX_TURNS = 12
+ORCHESTRATOR_MAX_TURNS = 20
 # Concurrency cap for solver fan-out. Each inner solver is its own SDK
 # session, so this also caps simultaneous API calls — keep modest to stay
 # under the five-hour rate limit on Sonnet.

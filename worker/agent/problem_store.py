@@ -72,6 +72,7 @@ def _build_parsed_server(
     save_parsed_schema = {
         "problem_text": str,
         "source_exam": str,
+        "subexam": str,
         "year": str,
         "source_page": int,
         "seq_no": int,
@@ -112,6 +113,7 @@ def _build_parsed_server(
             saved_bbox = [float(v) for v in bbox]
 
         source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
+        subexam = (args.get("subexam") or "").strip()
         year = str(args.get("year") or "Unknown").strip() or "Unknown"
         source_page_raw = args.get("source_page")
         source_page = int(source_page_raw) if source_page_raw is not None else None
@@ -125,6 +127,7 @@ def _build_parsed_server(
             source_page=source_page,
             seq_no=seq_no,
             source_exam=source_exam,
+            subexam=subexam,
             year=year,
             figure_image=figure_image,
             figure_bbox=saved_bbox,

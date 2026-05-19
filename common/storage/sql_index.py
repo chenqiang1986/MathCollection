@@ -23,9 +23,9 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
         """
         INSERT INTO problems
             (id, filename, category, subcategory, solve_time_seconds,
-             solve_time_estimated, created_at, source_exam, year, has_figure,
-             source_image, seq_no)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             solve_time_estimated, created_at, source_exam, subexam, year,
+             has_figure, source_image, seq_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             category = excluded.category,
@@ -34,6 +34,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             solve_time_estimated = excluded.solve_time_estimated,
             created_at = excluded.created_at,
             source_exam = excluded.source_exam,
+            subexam = excluded.subexam,
             year = excluded.year,
             has_figure = excluded.has_figure,
             source_image = excluded.source_image,
@@ -48,6 +49,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             int(problem.solve_time_estimated or 0),
             problem.created_at,
             problem.source_exam or "Unknown",
+            problem.subexam or "",
             problem.year or "Unknown",
             1 if (problem.figure_image or "").strip() else 0,
             problem.source_image or None,
@@ -95,6 +97,7 @@ def _build_where(
     max_time: float | None,
     full_range_max: float | None = None,
     source_exam: str | None = None,
+    subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
 ) -> tuple[str, list]:
@@ -111,6 +114,9 @@ def _build_where(
     if source_exam:
         where.append("source_exam = ?")
         params.append(source_exam)
+    if subexam:
+        where.append("subexam = ?")
+        params.append(subexam)
     if year:
         where.append("year = ?")
         params.append(year)
@@ -144,12 +150,13 @@ def query_index(
     page_size: int = 5,
     full_range_max: float | None = None,
     source_exam: str | None = None,
+    subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, year, has_figure,
+        source_exam, subexam, year, has_figure,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -175,12 +182,13 @@ def sample_index(
     max_time: float | None = None,
     full_range_max: float | None = None,
     source_exam: str | None = None,
+    subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, year, has_figure,
+        source_exam, subexam, year, has_figure,
     )
     with _connect() as conn:
         rows = conn.execute(
