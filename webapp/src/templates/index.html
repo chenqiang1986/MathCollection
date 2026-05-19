@@ -121,6 +121,36 @@
   <div id="print-container" aria-hidden="true"></div>
   <datalist id="all-categories"></datalist>
   <datalist id="all-subcategories"></datalist>
+
+  {% if can_upload %}
+  <div id="figure-editor" class="figure-editor" hidden role="dialog" aria-modal="true" aria-labelledby="figure-editor-title">
+    <div class="figure-editor-backdrop"></div>
+    <div class="figure-editor-panel">
+      <div class="figure-editor-header">
+        <h3 id="figure-editor-title">Adjust figure crop</h3>
+        <button type="button" class="figure-editor-close" aria-label="Close">×</button>
+      </div>
+      <p class="figure-editor-hint">Click and drag on the page to draw a new crop region. The selection is normalized to the rendered page.</p>
+      <div class="figure-editor-stage">
+        <img class="figure-editor-page" alt="source page">
+        <div class="figure-editor-selection" hidden></div>
+      </div>
+      <div class="figure-editor-actions">
+        <label>Rotation:
+          <select class="figure-editor-rotation">
+            <option value="0">0°</option>
+            <option value="90">90° CW</option>
+            <option value="180">180°</option>
+            <option value="270">270° CW</option>
+          </select>
+        </label>
+        <button type="button" class="figure-editor-save">Save crop</button>
+        <button type="button" class="figure-editor-cancel">Cancel</button>
+        <span class="figure-editor-status progress-text"></span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {% endif %}
 
 </body>

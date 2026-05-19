@@ -132,7 +132,9 @@
       `<div class="rendered">${escapeHtml(p.problem_text)}</div>`;
 
     if (p.figure_image) {
-      html += `<div class="diagram"><img src="/figures/${encodeURIComponent(p.figure_image)}" alt="figure"></div>`;
+      const adjustable = CAN_UPLOAD && p.source_image ? " adjustable" : "";
+      const titleAttr = adjustable ? ' title="Double-click to adjust crop"' : "";
+      html += `<div class="diagram"><img class="figure-image${adjustable}" src="/figures/${encodeURIComponent(p.figure_image)}" alt="figure"${titleAttr}></div>`;
     } else if (p.diagram_svg) {
       html += `<div class="diagram">${p.diagram_svg}</div>`;
     }
@@ -318,12 +320,166 @@
 
   listEl.addEventListener("dblclick", function (ev) {
     if (!CAN_UPLOAD) return;
+    const figImg = ev.target.closest("img.figure-image.adjustable");
+    if (figImg) {
+      const problemEl = figImg.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        openFigureEditor(problemEl);
+      }
+      return;
+    }
     const span = ev.target.closest("h3 .editable");
     if (!span) return;
     const problemEl = span.closest(".problem");
     if (!problemEl || problemEl.classList.contains("editing-category")) return;
     startCategoryEditor(problemEl);
   });
+
+  function openFigureEditor(problemEl) {
+    const editor = document.getElementById("figure-editor");
+    if (!editor) return;
+    const pageImg = editor.querySelector(".figure-editor-page");
+    const stage = editor.querySelector(".figure-editor-stage");
+    const selection = editor.querySelector(".figure-editor-selection");
+    const saveBtn = editor.querySelector(".figure-editor-save");
+    const cancelBtn = editor.querySelector(".figure-editor-cancel");
+    const closeBtn = editor.querySelector(".figure-editor-close");
+    const backdrop = editor.querySelector(".figure-editor-backdrop");
+    const rotationSel = editor.querySelector(".figure-editor-rotation");
+    const statusEl = editor.querySelector(".figure-editor-status");
+
+    const problemId = problemEl.dataset.id;
+    let bbox = null; // [x0, y0, x1, y1] normalized in [0,1]
+
+    selection.hidden = true;
+    saveBtn.disabled = true;
+    rotationSel.value = "0";
+    statusEl.textContent = "Loading source page…";
+    pageImg.removeAttribute("src");
+    editor.removeAttribute("hidden");
+
+    pageImg.onload = () => {
+      statusEl.textContent = "Click and drag to select the figure region.";
+    };
+    pageImg.onerror = () => {
+      statusEl.textContent = "Failed to load source page.";
+    };
+    pageImg.src = `/api/problems/${encodeURIComponent(problemId)}/source_page?t=${Date.now()}`;
+
+    function updateSelectionBox() {
+      if (!bbox) { selection.hidden = true; return; }
+      const rect = pageImg.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      // Offset of the image inside the (possibly scrollable) stage.
+      const offX = rect.left - stageRect.left + stage.scrollLeft;
+      const offY = rect.top - stageRect.top + stage.scrollTop;
+      const [x0, y0, x1, y1] = bbox;
+      selection.style.left = (offX + x0 * rect.width) + "px";
+      selection.style.top = (offY + y0 * rect.height) + "px";
+      selection.style.width = ((x1 - x0) * rect.width) + "px";
+      selection.style.height = ((y1 - y0) * rect.height) + "px";
+      selection.hidden = false;
+    }
+
+    let dragging = false;
+    let startX = 0, startY = 0;
+
+    function pointToNorm(ev) {
+      const rect = pageImg.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width;
+      const y = (ev.clientY - rect.top) / rect.height;
+      return [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))];
+    }
+
+    function onMouseDown(ev) {
+      if (ev.button !== 0) return;
+      if (!pageImg.complete || !pageImg.naturalWidth) return;
+      ev.preventDefault();
+      const [nx, ny] = pointToNorm(ev);
+      startX = nx; startY = ny;
+      bbox = [nx, ny, nx, ny];
+      dragging = true;
+      updateSelectionBox();
+    }
+    function onMouseMove(ev) {
+      if (!dragging) return;
+      const [nx, ny] = pointToNorm(ev);
+      bbox = [
+        Math.min(startX, nx), Math.min(startY, ny),
+        Math.max(startX, nx), Math.max(startY, ny),
+      ];
+      updateSelectionBox();
+    }
+    function onMouseUp() {
+      if (!dragging) return;
+      dragging = false;
+      if (bbox && (bbox[2] - bbox[0] > 0.005) && (bbox[3] - bbox[1] > 0.005)) {
+        saveBtn.disabled = false;
+        statusEl.textContent = "Press Save to re-crop, or drag again to redraw.";
+      } else {
+        bbox = null;
+        saveBtn.disabled = true;
+        selection.hidden = true;
+        statusEl.textContent = "Selection too small — drag a larger region.";
+      }
+    }
+    function onResize() { updateSelectionBox(); }
+
+    stage.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("resize", onResize);
+    stage.addEventListener("scroll", onResize);
+
+    function close() {
+      editor.setAttribute("hidden", "");
+      stage.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("resize", onResize);
+      stage.removeEventListener("scroll", onResize);
+      document.removeEventListener("keydown", onKey);
+      pageImg.onload = null;
+      pageImg.onerror = null;
+    }
+    function onKey(ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); close(); }
+    }
+    document.addEventListener("keydown", onKey);
+    cancelBtn.onclick = close;
+    closeBtn.onclick = close;
+    backdrop.onclick = close;
+
+    saveBtn.onclick = async () => {
+      if (!bbox) return;
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      statusEl.textContent = "Saving…";
+      try {
+        const resp = await fetch(`/api/problems/${encodeURIComponent(problemId)}/figure_bbox`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bbox, rotation: parseInt(rotationSel.value, 10) || 0 }),
+        });
+        if (!resp.ok) {
+          let msg = `HTTP ${resp.status}`;
+          try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+          throw new Error(msg);
+        }
+        const data = await resp.json();
+        if (data.problem) {
+          const fresh = renderProblem(data.problem);
+          problemEl.replaceWith(fresh);
+          renderMath(fresh);
+        }
+        close();
+      } catch (e) {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        statusEl.textContent = `Failed: ${e.message}`;
+      }
+    };
+  }
 
   const NEW_SENTINEL = "__new__";
 

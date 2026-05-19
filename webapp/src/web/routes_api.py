@@ -1,8 +1,8 @@
 """JSON API endpoints under /api."""
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
-from common import storage
+from common import figures, storage
 from lib import agent
 
 from .auth import login_required, upload_allowed_required
@@ -203,6 +203,64 @@ def refine_problem(problem_id):
         updated = agent.refine_problem(problem, hint=hint)
     except Exception as e:
         return jsonify({"error": f"agent error: {e}"}), 500
+    return jsonify({"problem": updated.to_dict()})
+
+
+@bp.route("/problems/<problem_id>/source_page", methods=["GET"])
+@login_required
+def problem_source_page(problem_id):
+    """Render the problem's recorded source page as a PNG so the UI can
+    show it for manual figure-bbox adjustment."""
+    problem = storage.get_problem(problem_id)
+    if not problem:
+        return jsonify({"error": "not found"}), 404
+    if not problem.source_image:
+        return jsonify({"error": "problem has no source_image"}), 404
+    try:
+        png = figures.render_source_page_to_png_bytes(
+            problem.source_image, page=problem.source_page or 1
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "source image missing on disk"}), 404
+    return Response(png, mimetype="image/png")
+
+
+@bp.route("/problems/<problem_id>/figure_bbox", methods=["POST"])
+@login_required
+@upload_allowed_required
+def update_figure_bbox(problem_id):
+    """Re-crop the figure for a problem from a user-supplied bbox."""
+    problem = storage.get_problem(problem_id)
+    if not problem:
+        return jsonify({"error": "not found"}), 404
+    if not problem.source_image:
+        return jsonify({"error": "problem has no source_image"}), 400
+    payload = request.get_json(silent=True) or {}
+    raw_bbox = payload.get("bbox")
+    if not isinstance(raw_bbox, list) or len(raw_bbox) != 4:
+        return jsonify({"error": "bbox must be [x0,y0,x1,y1]"}), 400
+    try:
+        bbox = [float(v) for v in raw_bbox]
+    except (TypeError, ValueError):
+        return jsonify({"error": "bbox values must be numeric"}), 400
+    try:
+        rotation = int(payload.get("rotation", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "rotation must be an int"}), 400
+    page = problem.source_page or 1
+    try:
+        new_figure = figures.save_figure(
+            problem.source_image, bbox, rotation=rotation, page=page
+        )
+    except (ValueError, FileNotFoundError) as e:
+        return jsonify({"error": str(e)}), 400
+    if problem.figure_image:
+        old = storage.figure_path(problem.figure_image)
+        if old.exists():
+            old.unlink()
+    updated = storage.update_problem(
+        problem_id, figure_image=new_figure, figure_bbox=bbox
+    )
     return jsonify({"problem": updated.to_dict()})
 
 

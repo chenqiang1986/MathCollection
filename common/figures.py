@@ -1,5 +1,6 @@
 """Crop and persist figure regions from uploaded source images or PDFs."""
 
+import io
 import tempfile
 import uuid
 from pathlib import Path
@@ -41,6 +42,19 @@ def _load_page_image(src_path: Path, page: int) -> Image.Image:
             pdf.close()
     with Image.open(src_path) as im:
         return im.convert("RGB")
+
+
+def render_source_page_to_png_bytes(source_image: str, page: int = 1) -> bytes:
+    """Render the given 1-indexed source page to PNG bytes. For PDFs the
+    page is rasterized at the same scale used for cropping; for raster
+    sources `page` is ignored and the image is re-encoded as PNG."""
+    src_path = raw_upload_path(source_image)
+    if not src_path.exists():
+        raise FileNotFoundError(f"source image not found: {src_path}")
+    im = _load_page_image(src_path, int(page) if page else 1)
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
 
 
 def render_source_page_to_temp_png(source_image: str, page: int = 1) -> Path:
