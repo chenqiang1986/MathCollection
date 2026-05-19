@@ -58,7 +58,7 @@ async def solve_problem(
     user_action = (
         "Analyze and solve the following math problem"
         if with_solution
-        else "Analyze and rate the difficulty of the following math problem"
+        else "Analyze and classify the following math problem"
     )
     prompt_parts = [
         f"{user_action}, then call `mcp__problem_store__save_problem` "

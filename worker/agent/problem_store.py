@@ -174,16 +174,12 @@ def _build_solved_server(
         save_description = (
             "Finalize the classification on this problem's existing "
             "partial record (no solution requested). Call once, AFTER "
-            "`lookup_category_edits`. `solve_time_estimated` is your own "
-            "estimate of how long you would take to solve the problem "
-            "step by step (integer seconds, calibrated to typical Sonnet "
-            "response time)."
+            "`lookup_category_edits`."
         )
         save_schema = {
             "problem_text": str,
             "category": str,
             "subcategory": str,
-            "solve_time_estimated": int,
         }
 
     @tool("save_problem", save_description, save_schema)
@@ -203,15 +199,15 @@ def _build_solved_server(
                 ],
                 "is_error": True,
             }
-        estimated_time = args.get("solve_time_estimated")
         updates: dict = {
             "problem_text": args["problem_text"],
             "category": args["category"],
             "subcategory": args.get("subcategory", "") or "",
             "solution": args.get("solution", "") or "",
         }
-        if estimated_time is not None:
-            updates["solve_time_estimated"] = int(round(float(estimated_time)))
+        if not with_solution:
+            # Backward-compat: schema no longer asks the LLM to estimate.
+            updates["solve_time_estimated"] = 60
         problem = storage.update_problem(existing_problem_id, **updates)
         saved.append(problem)
         return {
