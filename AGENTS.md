@@ -166,13 +166,17 @@ There are no tests, linters, or CI configured.
 
 ## Things to watch
 
-- `agent.process_image` calls `asyncio.run`, so it can't be invoked from inside
-  an existing event loop. The worker is fully synchronous; don't wrap it in one.
+- `agent.scan_image` and `agent.solve_pending_problems` each call
+  `asyncio.run`, so they can't be invoked from inside an existing event
+  loop. The worker is fully synchronous; don't wrap it in one.
 - Uploads succeed silently from the user's perspective until the worker
   catches up. If the worker isn't running, new files pile up in
-  `raw_queue.db` as `pending` rows and no problems appear. Check
-  `pending_count()` per user or `select * from raw_files where status =
-  'pending'` if uploads "stop working".
+  `raw_queue.db` as `pending_image_scan` rows and no problems appear. A
+  worker can also get stuck between stages: rows can sit in
+  `pending_problem_solve` if the solver is failing. Check
+  `pending_count()` (covers both pending states), `storage.status_counts()`,
+  or `select status, count(*) from raw_files group by status` if uploads
+  "stop working".
 - `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` must be
   in the environment (loaded via `python-dotenv`) before the app starts.
 - All storage helpers require an active user context — calling them without

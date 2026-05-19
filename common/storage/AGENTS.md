@@ -26,11 +26,16 @@ Per-user, file-backed problem store with a derived SQLite index.
   applied by `common.db_setup.setup.init_user()` from `/auth/callback`
   on login.
 - [queue.py](queue.py) — per-user raw-file queue used by the offline
-  worker. `enqueue_raw`, `claim_next`, `mark_done`, `mark_failed`,
-  `revert_to_pending`, `reclaim_stale_processing`, `pending_count`.
-  Lives in `raw_queue.db` (separate from `problems_index.db`); DDL
-  lives in [../db_setup/queue_schema.sql](../db_setup/queue_schema.sql)
-  and is also applied by `init_user()`. `claim_next` uses
+  worker. Five-state lifecycle (`pending_image_scan` →
+  `processing_image_scan` → `pending_problem_solve` →
+  `processing_problem_solve` → `done | failed`). Public ops:
+  `enqueue_raw`, `claim_next_image_scan`, `claim_next_problem_solve`,
+  `advance_to_problem_solve`, `mark_done`, `mark_failed`,
+  `revert_image_scan`, `revert_problem_solve`,
+  `reclaim_stale_processing`, `pending_count`. Lives in `raw_queue.db`
+  (separate from `problems_index.db`); DDL lives in
+  [../db_setup/queue_schema.sql](../db_setup/queue_schema.sql) and is
+  also applied by `init_user()`. Both `claim_next_*` helpers use
   `BEGIN IMMEDIATE` so two workers polling the same user don't race.
 - [category_edits.py](category_edits.py) — append-only log of manual
   category corrections (`record_category_edit`, `category_edit_examples`).

@@ -56,6 +56,25 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
     )
 
 
+def problems_by_source_and_category(
+    source_image: str, category: str
+) -> list[str]:
+    """Return problem IDs for `source_image` filtered to `category`. Used
+    by the solver stage to find partials (category='unclassified') saved
+    by the scan stage. Ordered by seq_no so retries see them in source
+    order."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id FROM problems
+            WHERE source_image = ? AND category = ?
+            ORDER BY COALESCE(seq_no, 0) ASC, created_at ASC
+            """,
+            (source_image, category.lower()),
+        ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def existing_seq_nos(source_image: str) -> set[int]:
     """Return the set of seq_no values already saved for this source_image.
     Used by the orchestrator to skip re-solving problems that were already

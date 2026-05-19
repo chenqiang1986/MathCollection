@@ -7,6 +7,13 @@
 -- derived mirror of the JSON files; this one is authoritative for
 -- queue state and cannot be rebuilt from the filesystem alone (it
 -- carries with_solution, attempts, errors, timestamps).
+--
+-- Lifecycle:
+--   pending_image_scan      (just uploaded, awaiting scan)
+--   processing_image_scan   (scan in flight)
+--   pending_problem_solve   (scan persisted partials, awaiting solve)
+--   processing_problem_solve (solver running across the partials)
+--   done | failed
 
 CREATE TABLE IF NOT EXISTS schema_version (
     schema_version INTEGER NOT NULL
@@ -27,4 +34,9 @@ CREATE TABLE IF NOT EXISTS raw_files (
 
 CREATE INDEX IF NOT EXISTS idx_status_queued ON raw_files(status, queued_at);
 
-UPDATE schema_version SET schema_version = 1;
+-- v1 -> v2: split single 'pending'/'processing' into per-stage states.
+-- Reverts any in-flight pre-v2 row back to the start of the pipeline.
+UPDATE raw_files SET status = 'pending_image_scan' WHERE status = 'pending';
+UPDATE raw_files SET status = 'pending_image_scan' WHERE status = 'processing';
+
+UPDATE schema_version SET schema_version = 2;

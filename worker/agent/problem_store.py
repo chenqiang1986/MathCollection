@@ -1,38 +1,168 @@
-"""In-process MCP server exposing `save_problem` and `lookup_category_edits`
-to the inner solver.
+"""In-process MCP server backing both stages of the agent pipeline.
 
-`lookup_category_edits` lets the solver consult prior user corrections that
-moved problems AWAY from a candidate (category, subcategory) pair, and
-switch its own choice in the same agent context — replacing the older
-two-pass design where a separate reviewer agent ran after save.
-`save_problem` refuses the first call until `lookup_category_edits` has
-been invoked at least once, so the solver cannot skip the check on a
-confident classification."""
+Two modes:
+
+- `mode="parsed"` (stage 1, image scan): exposes `save_parsed_problem`.
+  The orchestrator calls it once per problem extracted from the source.
+  Each call crops the figure (if any) and persists a partial problem JSON
+  with placeholder category `unclassified` and empty solution. Stage 2
+  finds these by `(source_image, category='unclassified')` and fills them
+  in. Duplicate seq_no calls for the same source_image are skipped so the
+  scan stage can safely retry.
+
+- `mode="solved"` (stage 2, problem solve): exposes `save_problem` and
+  `lookup_category_edits`. Like the original solver flow, but updates the
+  existing partial problem (identified by `existing_problem_id`) instead
+  of inserting a new one. `lookup_category_edits` must be called first to
+  pull in any prior user corrections, replacing the older two-pass
+  reviewer agent.
+"""
+
+from typing import Literal
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
-from common import storage
+from common import figures, storage
 
 CATEGORY_EDIT_EXAMPLES_LIMIT = 5
+UNCLASSIFIED_CATEGORY = "unclassified"
 
 
 def build_problem_store(
     source_image: str | None,
     saved: list[storage.Problem],
-    source_page: int | None = None,
-    seq_no: int | None = None,
-    source_exam: str = "Unknown",
-    year: str = "Unknown",
-    figure_image: str | None = None,
-    figure_bbox: list[float] | None = None,
+    *,
+    mode: Literal["parsed", "solved"] = "solved",
+    # solved-mode inputs:
+    existing_problem_id: str | None = None,
     with_solution: bool = True,
+):
+    """Return an MCP server bound to one source image (parsed mode) or one
+    partial problem record (solved mode). `saved` is the out-param the
+    caller reads after the agent finishes."""
+    if mode == "parsed":
+        return _build_parsed_server(source_image, saved)
+    if mode == "solved":
+        if existing_problem_id is None:
+            raise ValueError(
+                "solved mode requires existing_problem_id (the partial "
+                "saved by the scan stage)"
+            )
+        return _build_solved_server(
+            saved=saved,
+            existing_problem_id=existing_problem_id,
+            with_solution=with_solution,
+        )
+    raise ValueError(f"unknown mode: {mode!r}")
+
+
+def _build_parsed_server(
+    source_image: str | None,
+    saved: list[storage.Problem],
+):
+    save_parsed_description = (
+        "Persist one extracted math problem (text + optional figure) as "
+        "a partial record. Call once per distinct problem found in the "
+        "source. Do NOT solve or classify — that runs in a later stage. "
+        "Provide `figure_bbox` as `[x0, y0, x1, y1]` normalized to [0, 1] "
+        "tightly enclosing just the figure, or `[]` if none. "
+        "`figure_rotation` is 0/90/180/270 clockwise degrees to upright "
+        "the crop (0 if no figure). `figure_page` is the 1-indexed page "
+        "the figure lives on (1 if no figure)."
+    )
+    save_parsed_schema = {
+        "problem_text": str,
+        "source_exam": str,
+        "year": str,
+        "source_page": int,
+        "seq_no": int,
+        "figure_bbox": list,
+        "figure_rotation": int,
+        "figure_page": int,
+    }
+
+    @tool("save_parsed_problem", save_parsed_description, save_parsed_schema)
+    async def save_parsed_problem(args: dict) -> dict:
+        seq_no_raw = args.get("seq_no")
+        seq_no = int(seq_no_raw) if seq_no_raw is not None else None
+        if seq_no is not None and source_image:
+            # The scan stage may retry; skip seq_nos already persisted for
+            # this source_image so we don't pile up duplicates.
+            if seq_no in storage.existing_seq_nos(source_image):
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Skipped seq_no={seq_no}: already saved for "
+                                f"source_image={source_image!r}."
+                            ),
+                        }
+                    ]
+                }
+
+        bbox = args.get("figure_bbox") or []
+        rotation = int(args.get("figure_rotation") or 0)
+        figure_page = int(args.get("figure_page") or 1)
+        figure_image: str | None = None
+        saved_bbox: list[float] | None = None
+        if bbox and source_image:
+            figure_image = figures.save_figure(
+                source_image, bbox, rotation=rotation, page=figure_page
+            )
+            saved_bbox = [float(v) for v in bbox]
+
+        source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
+        year = str(args.get("year") or "Unknown").strip() or "Unknown"
+        source_page_raw = args.get("source_page")
+        source_page = int(source_page_raw) if source_page_raw is not None else None
+
+        problem = storage.save_problem(
+            problem_text=args["problem_text"],
+            category=UNCLASSIFIED_CATEGORY,
+            subcategory="",
+            solution="",
+            source_image=source_image,
+            source_page=source_page,
+            seq_no=seq_no,
+            source_exam=source_exam,
+            year=year,
+            figure_image=figure_image,
+            figure_bbox=saved_bbox,
+        )
+        saved.append(problem)
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Saved partial problem {problem.id} "
+                        f"(seq_no={seq_no})."
+                    ),
+                }
+            ]
+        }
+
+    return create_sdk_mcp_server(
+        name="problem_store",
+        version="1.0.0",
+        tools=[save_parsed_problem],
+    )
+
+
+def _build_solved_server(
+    *,
+    saved: list[storage.Problem],
+    existing_problem_id: str,
+    with_solution: bool,
 ):
     lookup_called = {"value": False}
 
     if with_solution:
         save_description = (
-            "Persist a single solved math problem to storage. Call once per "
-            "distinct problem, AFTER `lookup_category_edits` has been called "
-            "for your chosen category/subcategory."
+            "Finalize the classification and solution for this problem on "
+            "the existing partial record. Call exactly once, AFTER "
+            "`lookup_category_edits` has been called for your chosen "
+            "category/subcategory."
         )
         save_schema = {
             "problem_text": str,
@@ -42,12 +172,12 @@ def build_problem_store(
         }
     else:
         save_description = (
-            "Persist a single math problem to storage without a solution. "
-            "Call once per distinct problem, AFTER `lookup_category_edits` "
-            "has been called for your chosen category/subcategory. "
-            "`solve_time_estimated` is your own estimate of how long you "
-            "would take to solve the problem step by step (integer "
-            "seconds, calibrated to typical Sonnet response time)."
+            "Finalize the classification on this problem's existing "
+            "partial record (no solution requested). Call once, AFTER "
+            "`lookup_category_edits`. `solve_time_estimated` is your own "
+            "estimate of how long you would take to solve the problem "
+            "step by step (integer seconds, calibrated to typical Sonnet "
+            "response time)."
         )
         save_schema = {
             "problem_text": str,
@@ -74,26 +204,19 @@ def build_problem_store(
                 "is_error": True,
             }
         estimated_time = args.get("solve_time_estimated")
-        problem = storage.save_problem(
-            problem_text=args["problem_text"],
-            category=args["category"],
-            subcategory=args.get("subcategory", ""),
-            solution=args.get("solution", ""),
-            source_image=source_image,
-            source_page=source_page,
-            seq_no=seq_no,
-            source_exam=source_exam,
-            year=year,
-            figure_image=figure_image,
-            figure_bbox=figure_bbox,
-            solve_time_estimated=(
-                int(round(float(estimated_time))) if estimated_time is not None else 0
-            ),
-        )
+        updates: dict = {
+            "problem_text": args["problem_text"],
+            "category": args["category"],
+            "subcategory": args.get("subcategory", "") or "",
+            "solution": args.get("solution", "") or "",
+        }
+        if estimated_time is not None:
+            updates["solve_time_estimated"] = int(round(float(estimated_time)))
+        problem = storage.update_problem(existing_problem_id, **updates)
         saved.append(problem)
         return {
             "content": [
-                {"type": "text", "text": f"Saved problem {problem.id}."}
+                {"type": "text", "text": f"Updated problem {problem.id}."}
             ]
         }
 

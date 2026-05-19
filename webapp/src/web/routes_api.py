@@ -99,6 +99,19 @@ def queue_state():
     )
 
 
+@bp.route("/queue/retry", methods=["POST"])
+@login_required
+@upload_allowed_required
+def queue_retry():
+    payload = request.get_json(silent=True) or {}
+    filename = (payload.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"error": "filename is required"}), 400
+    if not storage.retry_failed(filename):
+        return jsonify({"error": "not a failed item"}), 404
+    return jsonify({"filename": filename, "status": storage.PENDING_IMAGE_SCAN})
+
+
 @bp.route("/problems", methods=["GET"])
 @login_required
 def problems():

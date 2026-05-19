@@ -1,13 +1,15 @@
-"""Inner solver: classifies/solves a single problem in a fresh agent context.
+"""Inner solver: classifies/solves a single partial problem in a fresh
+agent context.
 
-Exposes `solve_problem`, a plain async function that takes one parsed
-problem dict from the orchestrator, crops its figure if any, and runs the
-solver agent against it."""
+Exposes `solve_problem`, a plain async function that takes one partial
+`storage.Problem` saved by the scan stage and updates it in place with
+category/subcategory/solution via `build_problem_store(mode="solved")`.
+"""
 
 import time
 
 from claude_agent_sdk import ClaudeAgentOptions, query
-from common import figures, storage
+from common import storage
 from common.agent_util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 from jinja2 import Environment, FileSystemLoader
 
@@ -22,27 +24,18 @@ _SOLVER_TEMPLATE = Environment(
 ).get_template("solver.md")
 
 
-async def _run_inner_solver(
-    problem_text: str,
-    source_image: str | None,
-    source_page: int | None = None,
-    seq_no: int | None = None,
-    source_exam: str = "Unknown",
-    year: str = "Unknown",
-    figure_image: str | None = None,
-    figure_bbox: list[float] | None = None,
+async def solve_problem(
+    partial: storage.Problem,
     with_solution: bool = True,
 ) -> storage.Problem:
+    """Run the inner solver against `partial` (a record saved by the scan
+    stage with category=`unclassified`) and update it in place."""
     saved: list[storage.Problem] = []
     server = build_problem_store(
-        source_image,
+        partial.source_image,
         saved,
-        source_page=source_page,
-        seq_no=seq_no,
-        source_exam=source_exam,
-        year=year,
-        figure_image=figure_image,
-        figure_bbox=figure_bbox,
+        mode="solved",
+        existing_problem_id=partial.id,
         with_solution=with_solution,
     )
 
@@ -50,7 +43,7 @@ async def _run_inner_solver(
         "mcp__problem_store__save_problem",
         "mcp__problem_store__lookup_category_edits",
     ]
-    if figure_image:
+    if partial.figure_image:
         allowed_tools.append("Read")
 
     options = ClaudeAgentOptions(
@@ -70,10 +63,10 @@ async def _run_inner_solver(
     prompt_parts = [
         f"{user_action}, then call `mcp__problem_store__save_problem` "
         "exactly once.",
-        f"Problem:\n{problem_text}",
+        f"Problem:\n{partial.problem_text}",
     ]
-    if figure_image:
-        fig_path = storage.figure_path(figure_image)
+    if partial.figure_image:
+        fig_path = storage.figure_path(partial.figure_image)
         prompt_parts.append(
             f"An accompanying figure is at {fig_path}. Read it with the "
             "`Read` tool for spatial relationships (incidence, ordering of "
@@ -82,7 +75,7 @@ async def _run_inner_solver(
         )
     prompt = "\n\n".join(prompt_parts)
 
-    print("[solver] start", flush=True)
+    print(f"[solver] start id={partial.id}", flush=True)
     started = time.monotonic()
     async for message in query(prompt=prompt, options=options):
         log_message(message)
@@ -95,8 +88,8 @@ async def _run_inner_solver(
 
     if len(saved) != 1:
         raise ValueError(
-            f"Inner solver expected exactly one saved record, got "
-            f"{len(saved)} for problem: {problem_text!r}"
+            f"Inner solver expected exactly one updated record, got "
+            f"{len(saved)} for problem id={partial.id}"
         )
 
     problem = saved[0]
@@ -106,40 +99,3 @@ async def _run_inner_solver(
             solve_time_seconds=round(elapsed, 2),
         )
     return problem
-
-
-async def solve_problem(
-    parsed: dict,
-    source_image: str | None,
-    with_solution: bool = True,
-) -> storage.Problem:
-    """Crop the figure (if any) and run the inner solver for one parsed
-    problem dict produced by the orchestrator."""
-    bbox = parsed.get("figure_bbox") or []
-    rotation = int(parsed.get("figure_rotation") or 0)
-    page = int(parsed.get("figure_page") or 1)
-    source_page = int(parsed.get("source_page") or 1)
-    seq_no_raw = parsed.get("seq_no")
-    seq_no = int(seq_no_raw) if seq_no_raw is not None else None
-    source_exam = (parsed.get("source_exam") or "Unknown").strip() or "Unknown"
-    year = str(parsed.get("year") or "Unknown").strip() or "Unknown"
-
-    figure_image: str | None = None
-    saved_bbox: list[float] | None = None
-    if bbox and source_image:
-        figure_image = figures.save_figure(
-            source_image, bbox, rotation=rotation, page=page
-        )
-        saved_bbox = [float(v) for v in bbox]
-
-    return await _run_inner_solver(
-        parsed["problem_text"],
-        source_image,
-        source_page=source_page,
-        seq_no=seq_no,
-        source_exam=source_exam,
-        year=year,
-        figure_image=figure_image,
-        figure_bbox=saved_bbox,
-        with_solution=with_solution,
-    )

@@ -1,19 +1,19 @@
 """Main loop for the offline worker.
 
-Scans every user directory under `data/`. For each user with a pending
-raw file, claims the oldest one, runs the agent on it, and marks the
-row done or failed. Between files, sleeps `IDLE_SLEEP_SECONDS` then
-rescans.
+Scans every user directory under `data/`. For each user, drains both
+queue stages — image_scan first (so newly uploaded files turn into
+partials quickly), then problem_solve (so the solver backlog catches
+up). Each claimed row runs through one stage and is either advanced,
+reverted, or failed.
 
-If a run reports `hit_quota_limit=True`, the file is reverted to pending
-(quota isn't the file's fault, so it doesn't count toward `MAX_ATTEMPTS`)
-and the whole scan loop sleeps until the reported reset timestamp before
-trying again.
+If a run reports `hit_quota_limit=True`, the row is reverted to its
+pending state (quota isn't the file's fault, so it doesn't count toward
+`MAX_ATTEMPTS`) and the whole scan loop sleeps until the reported reset
+timestamp before trying again.
 """
 
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from common import storage
 from common.db_setup.setup import init_user
@@ -21,10 +21,10 @@ from common.db_setup.setup import init_user
 from . import agent
 
 IDLE_SLEEP_SECONDS = 60
-# Cap how many times a file can be reverted-and-retried on partial saves.
-# After this many `claim_next` cycles produce an incomplete result, we
-# give up and mark it failed so a deterministic per-problem error doesn't
-# loop forever.
+# Cap how many times a single stage can be reverted-and-retried on a
+# partial result. After this many `claim_next_*` cycles produce an
+# incomplete result, give up and mark the file failed so a deterministic
+# per-problem error doesn't loop forever.
 MAX_ATTEMPTS = 3
 # Fallback wait when a quota hit is reported with no `resets_at`.
 DEFAULT_QUOTA_SLEEP_SECONDS = 60 * 60
@@ -53,101 +53,150 @@ def _iter_user_emails() -> list[str]:
     return emails
 
 
-def _process_one(
-    filename: str, with_solution: bool
-) -> agent.ProcessImageResult:
-    raw_path = storage.raw_upload_path(filename)
+def _run_image_scan(item: storage.QueueItem) -> agent.StageResult:
+    raw_path = storage.raw_upload_path(item.filename)
     if not raw_path.exists():
         raise FileNotFoundError(f"raw file missing on disk: {raw_path}")
-    return agent.process_image(
-        raw_path,
-        source_image=filename,
-        with_solution=with_solution,
+    return agent.scan_image(raw_path, source_image=item.filename)
+
+
+def _run_problem_solve(item: storage.QueueItem) -> agent.StageResult:
+    return agent.solve_pending_problems(
+        source_image=item.filename, with_solution=item.with_solution
     )
 
 
-def _drain_user(email: str) -> agent.ProcessImageResult | None:
-    """Claim and process at most one pending row for this user. Returns
-    the run's `ProcessImageResult` if work was done, or `None` if there
-    was nothing pending. On a quota hit the file is reverted to pending
-    without consulting `MAX_ATTEMPTS` — the caller is expected to sleep
-    until `result.quota_reset_at`."""
+def _handle_result(
+    item: storage.QueueItem,
+    stage: str,
+    result: agent.StageResult,
+    *,
+    advance_fn,
+    revert_fn,
+) -> None:
+    """Apply the queue transition appropriate to `result`. `advance_fn`
+    moves to the next state on success; `revert_fn` puts the row back to
+    its pending state on quota / partial result."""
+    if result.hit_quota_limit:
+        revert_fn(
+            item.filename,
+            error=(
+                f"{stage}: quota hit; will retry after "
+                f"{result.quota_reset_at}: {result.summary}"
+            ),
+        )
+        print(
+            f"[worker] QUOTA HIT on {item.filename} during {stage}; "
+            f"reverting (resets_at={result.quota_reset_at})",
+            flush=True,
+        )
+    elif result.complete:
+        advance_fn(item.filename)
+        print(
+            f"[worker] {stage} OK on {item.filename}: {result.summary}",
+            flush=True,
+        )
+    elif item.attempts >= MAX_ATTEMPTS:
+        storage.mark_failed(
+            item.filename,
+            error=(
+                f"{stage}: incomplete after {item.attempts} attempts: "
+                f"{result.summary}"
+            ),
+        )
+        print(
+            f"[worker] GIVING UP on {item.filename} after {item.attempts} "
+            f"attempts in {stage}: {result.summary}",
+            flush=True,
+        )
+    else:
+        revert_fn(
+            item.filename,
+            error=(
+                f"{stage}: partial result on attempt {item.attempts}; "
+                f"will retry: {result.summary}"
+            ),
+        )
+        print(
+            f"[worker] INCOMPLETE {item.filename} in {stage} "
+            f"(attempt {item.attempts}/{MAX_ATTEMPTS}), reverting: "
+            f"{result.summary}",
+            flush=True,
+        )
+
+
+def _drain_user(email: str) -> agent.StageResult | None:
+    """Claim and process at most one pending row for this user — image
+    scan first, then problem solve. Returns the run's `StageResult` if
+    work was done, or `None` if there was nothing pending. On a quota hit
+    the row is reverted to pending; the caller is expected to sleep until
+    `result.quota_reset_at`."""
     token = storage.set_current_user(email)
     try:
         init_user()
-        item = storage.claim_next()
-        if item is None:
-            return None
-        print(
-            f"[worker] {email} processing {item.filename} "
-            f"(attempt {item.attempts}, with_solution={item.with_solution})",
-            flush=True,
-        )
-        try:
-            result = _process_one(item.filename, item.with_solution)
-        except Exception as exc:
-            storage.mark_failed(item.filename, error=repr(exc))
+
+        item = storage.claim_next_image_scan()
+        if item is not None:
             print(
-                f"[worker] {email} FAILED {item.filename}: {exc!r}",
+                f"[worker] {email} scan {item.filename} "
+                f"(attempt {item.attempts}, with_solution={item.with_solution})",
                 flush=True,
             )
-            return agent.ProcessImageResult(
-                saved=[], complete=False, summary=f"error: {exc!r}"
+            return _drive_stage(
+                item,
+                stage="image_scan",
+                run_fn=_run_image_scan,
+                advance_fn=storage.advance_to_problem_solve,
+                revert_fn=storage.revert_image_scan,
             )
-        if result.hit_quota_limit:
-            storage.revert_to_pending(
-                item.filename,
-                error=(
-                    f"quota hit; will retry after "
-                    f"{result.quota_reset_at}: {result.summary}"
-                ),
-            )
+
+        item = storage.claim_next_problem_solve()
+        if item is not None:
             print(
-                f"[worker] {email} QUOTA HIT on {item.filename}; reverting "
-                f"to pending (resets_at={result.quota_reset_at})",
+                f"[worker] {email} solve {item.filename} "
+                f"(attempt {item.attempts}, with_solution={item.with_solution})",
                 flush=True,
             )
-        elif result.complete:
-            storage.mark_done(item.filename)
-            print(
-                f"[worker] {email} done {item.filename}: {result.summary}",
-                flush=True,
+            return _drive_stage(
+                item,
+                stage="problem_solve",
+                run_fn=_run_problem_solve,
+                advance_fn=storage.mark_done,
+                revert_fn=storage.revert_problem_solve,
             )
-        elif item.attempts >= MAX_ATTEMPTS:
-            storage.mark_failed(
-                item.filename,
-                error=(
-                    f"incomplete after {item.attempts} attempts: "
-                    f"{result.summary}"
-                ),
-            )
-            print(
-                f"[worker] {email} GIVING UP on {item.filename} "
-                f"after {item.attempts} attempts: {result.summary}",
-                flush=True,
-            )
-        else:
-            storage.revert_to_pending(
-                item.filename,
-                error=(
-                    f"partial save on attempt {item.attempts}; will retry: "
-                    f"{result.summary}"
-                ),
-            )
-            print(
-                f"[worker] {email} INCOMPLETE {item.filename} "
-                f"(attempt {item.attempts}/{MAX_ATTEMPTS}), reverting to "
-                f"pending: {result.summary}",
-                flush=True,
-            )
-        return result
+        return None
     finally:
         storage.reset_current_user(token)
 
 
+def _drive_stage(
+    item: storage.QueueItem,
+    *,
+    stage: str,
+    run_fn,
+    advance_fn,
+    revert_fn,
+) -> agent.StageResult:
+    try:
+        result = run_fn(item)
+    except Exception as exc:
+        storage.mark_failed(item.filename, error=f"{stage}: {exc!r}")
+        print(
+            f"[worker] FAILED {item.filename} in {stage}: {exc!r}",
+            flush=True,
+        )
+        return agent.StageResult(
+            saved=[], complete=False, summary=f"error: {exc!r}"
+        )
+    _handle_result(
+        item, stage, result, advance_fn=advance_fn, revert_fn=revert_fn
+    )
+    return result
+
+
 def _reclaim_all_stale() -> None:
-    """At startup, flip any `processing` rows from a prior killed run back
-    to `pending` so they get retried."""
+    """At startup, flip any in-flight `processing_*` rows from a prior
+    killed run back to the matching `pending_*` so they get retried."""
     for email in _iter_user_emails():
         token = storage.set_current_user(email)
         try:
@@ -203,8 +252,8 @@ def run_forever() -> None:
 
 
 def run_once() -> int:
-    """Drain every user's queue once and exit. Returns the count of files
-    processed. Used by `--once` for testing."""
+    """Drain every user's queue once and exit. Returns the count of
+    stage results processed. Used by `--once` for testing."""
     processed = 0
     for email in _iter_user_emails():
         while True:

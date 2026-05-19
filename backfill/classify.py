@@ -1,7 +1,7 @@
 """Re-classify category and subcategory on existing problems via a
 single-turn call against the closed vocabulary in
-`prompts/math_category.md`. Cheap relative to `process_image` — no
-solution generation, no tool calls."""
+`prompts/math_category.md`. Cheap relative to the worker's scan +
+solve pipeline — no solution generation, no tool calls."""
 
 import asyncio
 import json
