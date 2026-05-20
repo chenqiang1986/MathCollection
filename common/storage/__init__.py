@@ -1,6 +1,6 @@
 """Public surface for the storage package — re-exports submodule symbols."""
 
-from .paths import (
+from common.storage.paths import (
     DATA_DIR,
     REPO_ROOT,
     figure_path,
@@ -15,15 +15,15 @@ from .paths import (
     set_current_user,
     user_dir,
 )
-from .category_edits import category_edit_examples, record_category_edit
-from .problem_io import (
+from common.storage.category_edits import category_edit_examples, record_category_edit
+from common.storage.problem_io import (
     delete_problem,
     get_problem,
     list_problems,
     save_problem,
     update_problem,
 )
-from .queue import (
+from common.storage.queue import (
     DONE,
     FAILED,
     PENDING_IMAGE_SCAN,
@@ -45,19 +45,19 @@ from .queue import (
     revert_problem_solve,
     status_counts,
 )
-from .sql_index import (
+from common.storage.sql_index import (
     existing_seq_nos,
     problems_by_source_and_category,
     query_index,
     sample_index,
 )
-from .stats import (
+from common.storage.stats import (
     category_counts,
     difficulty_distribution,
     index_summary,
     subcategory_counts,
 )
-from .vocab import (
+from common.storage.vocab import (
     CANONICAL_SOURCE_EXAMS,
     DIFFICULTY_BUCKETS,
     Bucket,

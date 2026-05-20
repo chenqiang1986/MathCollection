@@ -21,12 +21,11 @@ HTTP-facing lives here.
   `sample` (random for print-to-PDF), `stats/categories`, `stats/difficulty`.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the
-  raw image under `data/<email>/raw/` (via `storage.raw_uploads_dir()`
-  so it lands on the GCS-Fuse-mounted volume in production) and enqueues
-  it in the per-user `raw_queue.db` via `storage.enqueue_raw(...)`.
-  **The web tier no longer calls the agent on upload** — the offline
-  worker in [worker/](../../../worker/) drains the queue. Also serves
-  per-user figure PNGs at `/figures/<filename>`.
+  raw image under `data/<email>/raw/` (via `storage.raw_uploads_dir()`)
+  and enqueues it in the per-user `raw_queue.db` via
+  `storage.enqueue_raw(...)`. **The web tier no longer calls the agent
+  on upload** — the offline worker in [worker/](../../../worker/) drains
+  the queue. Also serves per-user figure PNGs at `/figures/<filename>`.
 
 ## Conventions
 
@@ -60,6 +59,6 @@ HTTP-facing lives here.
   [../lib/agent/problem_store.py](../lib/agent/problem_store.py)).
 - Don't read uploads from the request path; use
   `storage.raw_uploads_dir()` / `storage.raw_upload_path(name)` so the
-  per-user GCS-Fuse-mounted layout is consistent across blueprints.
+  per-user data layout stays consistent across blueprints.
 - Don't import the agent at module top-level in places that don't need it;
   it pulls in `claude_agent_sdk` which is heavy.

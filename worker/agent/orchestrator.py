@@ -23,9 +23,9 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from common import storage
 from common.agent_util import MAX_BUFFER_SIZE, MODEL, log_message
 
-from ..quota import QuotaHit, detect_in_message as detect_quota_in_message, later_reset
-from .problem_store import UNCLASSIFIED_CATEGORY, build_problem_store
-from .solver import solve_problem
+from worker.quota import QuotaHit, detect_in_message as detect_quota_in_message, later_reset
+from worker.agent.problem_store import UNCLASSIFIED_CATEGORY, build_problem_store
+from worker.agent.solver import solve_problem
 
 ORCHESTRATOR_MAX_TURNS = 20
 # Concurrency cap for solver fan-out. Each inner solver is its own SDK

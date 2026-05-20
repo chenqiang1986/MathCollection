@@ -8,6 +8,6 @@ The webapp's only remaining agent dependency is `refine_problem`, hit by
 `common.agent_util` so the worker doesn't depend on the webapp.
 """
 
-from .refine import refine_problem
+from webapp.src.lib.agent.refine import refine_problem
 
 __all__ = ["refine_problem"]

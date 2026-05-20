@@ -32,7 +32,7 @@ _PENDING_STATES = (PENDING_IMAGE_SCAN, PENDING_PROBLEM_SOLVE)
 _PROCESSING_STATES = (PROCESSING_IMAGE_SCAN, PROCESSING_PROBLEM_SOLVE)
 _IN_FLIGHT_STATES = _PENDING_STATES + _PROCESSING_STATES
 
-from .paths import queue_path, user_dir
+from common.storage.paths import queue_path, user_dir
 
 
 def _connect() -> sqlite3.Connection:

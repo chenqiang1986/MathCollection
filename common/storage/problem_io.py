@@ -4,9 +4,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from .paths import figures_dir, problems_dir
-from .sql_index import _connect, _upsert_index_row
-from .vocab import Problem
+from common.storage.paths import figures_dir, problems_dir
+from common.storage.sql_index import _connect, _upsert_index_row
+from common.storage.vocab import Problem
 
 
 def _write_problem_file(problem: Problem) -> None:

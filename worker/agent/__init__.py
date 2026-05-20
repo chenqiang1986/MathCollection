@@ -15,13 +15,13 @@ the same reason — refine.md `{% include %}`s it. The orchestrator prompt
 is worker-only and lives in [../prompts/orchestrator.md](../prompts/orchestrator.md).
 """
 
-from .orchestrator import (
+from worker.agent.orchestrator import (
     ProcessImageResult,
     StageResult,
     scan_image,
     solve_pending_problems,
 )
-from .problem_store import UNCLASSIFIED_CATEGORY, build_problem_store
+from worker.agent.problem_store import UNCLASSIFIED_CATEGORY, build_problem_store
 
 __all__ = [
     "ProcessImageResult",

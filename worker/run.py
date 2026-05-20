@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from common import storage
 from common.db_setup.setup import init_user
 
-from . import agent
+from worker import agent
 
 IDLE_SLEEP_SECONDS = 60
 # Cap how many times a single stage can be reverted-and-retried on a

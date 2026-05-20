@@ -4,7 +4,7 @@ from flask import Blueprint, render_template
 
 from common import storage
 
-from .auth import current_user, login_required, storage_email
+from webapp.src.web.auth import current_user, login_required, storage_email
 
 bp = Blueprint("pages", __name__)
 

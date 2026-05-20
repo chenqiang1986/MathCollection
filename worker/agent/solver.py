@@ -13,8 +13,8 @@ from common import storage
 from common.agent_util import MAX_BUFFER_SIZE, MODEL, PROMPTS_DIR, log_message
 from jinja2 import Environment, FileSystemLoader
 
-from ..quota import detect_in_message as detect_quota_in_message
-from .problem_store import build_problem_store
+from worker.quota import detect_in_message as detect_quota_in_message
+from worker.agent.problem_store import build_problem_store
 
 SOLVER_MAX_TURNS = 7
 

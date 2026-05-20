@@ -82,9 +82,9 @@ depends on the other.
 
 ## Run
 
-All three entry points need the repo root on `PYTHONPATH` so
-`from common import ...` resolves; the webapp also needs `webapp/src`
-on `PYTHONPATH` so the `lib.agent` package (refine) and `web/` package
+All three entry points need the repo root on `PYTHONPATH` so absolute
+imports rooted at the repo (e.g. `from common import ...`,
+`from webapp.src.web import auth`, `from worker.agent import ...`)
 resolve.
 
 ```bash
@@ -94,7 +94,7 @@ cp .env.example .env    # ANTHROPIC_API_KEY, FLASK_SECRET_KEY,
                         # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 # 1. Webapp (uploads + browsing)
-PYTHONPATH=.:webapp/src python webapp/src/app.py          # http://0.0.0.0:5001
+PYTHONPATH=. python -m webapp.src.app                     # http://0.0.0.0:5001
 
 # 2. Offline worker (separate shell — drains the raw-file queues)
 PYTHONPATH=. python -m worker                             # daemon
@@ -105,9 +105,9 @@ PYTHONPATH=. python -m backfill classify --email me@example.com
 ```
 
 Run all commands from the repo root. The Docker image (built from
-`webapp/Dockerfile`) sets `PYTHONPATH=/app` and copies both `common/`
-and `webapp/src/` into the container; build it from the repo root so
-both directories are in the build context.
+`webapp/Dockerfile`) sets `PYTHONPATH=/app` and copies `common/` and
+`webapp/` into the container; build it from the repo root so the whole
+package tree is in the build context.
 
 There are no tests, linters, or CI configured.
 

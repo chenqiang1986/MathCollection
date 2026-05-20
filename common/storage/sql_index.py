@@ -7,8 +7,8 @@ already exists.
 
 import sqlite3
 
-from .paths import index_path, user_dir
-from .vocab import Problem
+from common.storage.paths import index_path, user_dir
+from common.storage.vocab import Problem
 
 
 def _connect() -> sqlite3.Connection:

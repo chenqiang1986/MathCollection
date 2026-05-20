@@ -2,8 +2,8 @@
 
 import math
 
-from .sql_index import _connect
-from .vocab import DIFFICULTY_BUCKETS
+from common.storage.sql_index import _connect
+from common.storage.vocab import DIFFICULTY_BUCKETS
 
 
 def category_counts() -> list[dict]:

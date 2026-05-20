@@ -18,7 +18,7 @@ from flask import (
     url_for,
 )
 from common import storage
-from .auth import login_required, upload_allowed_required
+from webapp.src.web.auth import login_required, upload_allowed_required
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
 

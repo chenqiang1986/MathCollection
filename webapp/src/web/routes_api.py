@@ -5,7 +5,7 @@ from flask import Blueprint, Response, jsonify, request
 from common import figures, storage
 from webapp.src.lib import agent
 
-from .auth import login_required, upload_allowed_required
+from webapp.src.web.auth import login_required, upload_allowed_required
 
 DEFAULT_PAGE_SIZE = 5
 MAX_PAGE_SIZE = 50

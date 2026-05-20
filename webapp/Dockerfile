@@ -1,5 +1,5 @@
-# Build from the repo root so both `common/` and `webapp/` are in the
-# build context:
+# Build from the repo root so `common/`, `worker/`, and `webapp/` are all
+# in the build context:
 #   docker build -f webapp/Dockerfile -t mathcollection-web .
 FROM python:3.12-slim
 
@@ -19,24 +19,22 @@ COPY webapp/requirements.txt ./webapp/requirements.txt
 RUN pip install --no-cache-dir -r webapp/requirements.txt
 
 # Shared code (storage, db_setup, figures, agent_util, prompts) lives in
-# `common/`; the Flask app and refine agent live in `webapp/src/`. Both
-# go on PYTHONPATH (`/app` and `/app/webapp/src` are visible via the env
-# var below and gunicorn's --chdir).
+# `common/`; the Flask app and refine agent live in `webapp/`. Both go on
+# PYTHONPATH=/app so absolute imports like `from common import ...` and
+# `from webapp.src.lib import ...` resolve.
 COPY common ./common
-COPY webapp/src ./webapp/src
+COPY webapp ./webapp
 
 RUN mkdir -p /app/data
 
 EXPOSE 8080
 
-# Cloud Run injects $PORT. Bind gunicorn to it. One worker because the app
-# uses a per-request SQLite file on a GCS-Fuse-mounted volume.
-# PYTHONPATH=/app lets `from common import ...` resolve; --chdir makes
-# `app:app` resolve from `webapp/src/app.py`.
+# Bind gunicorn to $PORT. One worker because the app uses a per-request
+# SQLite file under data/<user>/. The Flask app object is at
+# `webapp.src.app:app` (PYTHONPATH=/app makes this importable).
 CMD exec gunicorn \
-    --chdir webapp/src \
     --bind "0.0.0.0:${PORT}" \
     --workers 1 \
     --threads 8 \
     --timeout 120 \
-    "app:app"
+    "webapp.src.app:app"

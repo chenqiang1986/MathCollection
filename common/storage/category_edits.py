@@ -11,7 +11,7 @@ Schema lives in [src/db_setup/schema.sql](../../db_setup/schema.sql).
 
 from datetime import datetime, timezone
 
-from .sql_index import _connect
+from common.storage.sql_index import _connect
 
 
 def record_category_edit(
