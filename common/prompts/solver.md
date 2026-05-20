@@ -29,6 +29,12 @@ path to a cropped figure image. Do all of the following, then stop:
 4. Call the `save_problem` tool EXACTLY ONCE with `problem_text` (the input
    text, unchanged), the final `category`, `subcategory`, and `solution`.
 {%- else -%}
+You are classifying only. Do NOT solve the problem. Do not compute,
+verify, or state any numeric or final answer — not in your reasoning,
+not in tool calls, not in the confirmation message. Decide the category
+from the problem statement alone; if a category seems to require
+actually solving the problem to choose, that is the wrong category.
+
 2. Call `lookup_category_edits` EXACTLY ONCE with your tentative `category`
    and `subcategory` from step 1. The tool returns past user corrections
    that moved problems away from that pair. If the examples reveal a
@@ -59,4 +65,9 @@ tool to ground your understanding of the figure (incidence, ordering of
 points, parallels, equal marks, etc.). Treat the problem text as
 authoritative for any numeric values.
 
-After `save_problem` returns, reply with a one-line confirmation.
+After `save_problem` returns, reply with exactly one line:
+`Saved as <category> → <subcategory>.`
+{% if not with_solution -%}
+Nothing else — no answer, no hints, no solution steps, no commentary on
+difficulty or approach.
+{%- endif %}

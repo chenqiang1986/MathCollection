@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from flask import Flask
 
-from web import auth, routes_api, routes_pages, uploads
+from .web import auth, routes_api, routes_pages, uploads
 
 load_dotenv()
 

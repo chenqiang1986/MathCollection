@@ -43,9 +43,13 @@ _SYSTEM = (
     "call `mcp__subexam__save_subexam_info` EXACTLY ONCE with the "
     "result. Do not reply with prose.\n\n"
     "Field rules:\n"
-    "- `source_exam`: canonical short form, no spaces — e.g. AMC10, "
-    "AMC12, AIME, BMT, ARML, HMMT, MathCounts, Putnam. Use `Unknown` "
-    "if not indicated anywhere in the document.\n"
+    "- `source_exam`: use EXACTLY one of these canonical values "
+    "(case-sensitive): AMC8, AMC10A, AMC10B, AMC12A, AMC12B, AIME, BMT, "
+    "HMMT, ARML, MathCounts, PiMathContest, Putnam. Map variants to "
+    "their canonical form: MATHCOUNTS / Mathcounts / Math Counts → "
+    "MathCounts; PiMC / Pi Math Contest / PMC → PiMathContest. If the "
+    "contest isn't in this list, use the short form without spaces as "
+    "it appears in the document. Use `Unknown` if not indicated.\n"
     "- `subexam`: the named round/test within the competition, "
     "lowercase short form. Examples:\n"
     "  - BMT → general, algebra, discrete, calculus, geometry, team\n"
@@ -72,7 +76,7 @@ def _build_subexam_store(out: dict) -> object:
         {"source_exam": str, "subexam": str},
     )
     async def save_subexam_info(args: dict) -> dict:
-        exam = (args.get("source_exam") or "").strip() or "Unknown"
+        exam = storage.canonicalize_source_exam(args.get("source_exam"))
         sub = (args.get("subexam") or "").strip().lower()
         out["source_exam"] = exam
         out["subexam"] = sub

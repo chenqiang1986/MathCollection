@@ -20,12 +20,17 @@ For each problem, provide these fields:
 
 - `problem_text`: the verbatim problem statement. Wrap math in `$...$`
   (inline) or `$$...$$` (display). When a literal dollar sign is meant as
-  currency (USD), escape it as `\$` (e.g. `\$5` for five dollars) so it is
-  not parsed as a math delimiter.
-- `source_exam`: the math competition name as it appears in the source —
-  e.g. `AMC10`, `AMC12`, `AIME`, `BMT`, `ARML`, `HMMT`, `Putnam`, etc.
-  Use the canonical short form without spaces. `Unknown` if the source
-  has no competition info.
+  currency (USD), explicitly use word `dollars` (such as `5 dollars`) so it
+  has no conflict with math symbol.
+- `source_exam`: the math competition name. Use EXACTLY one of these
+  canonical values (case-sensitive — match exactly): `AMC8`, `AMC10A`,
+  `AMC10B`, `AMC12A`, `AMC12B`, `AIME`, `BMT`, `HMMT`, `ARML`,
+  `MathCounts`, `PiMathContest`, `Putnam`. Map common variants to their
+  canonical form, e.g. `MATHCOUNTS` / `Mathcounts` / `Math Counts` →
+  `MathCounts`; `PiMC` / `Pi Math Contest` / `PMC` → `PiMathContest`.
+  If the source shows a contest not in this list, use the short form
+  without spaces as it appears in the source. Use `Unknown` if the
+  source has no competition info.
 - `subexam`: the sub-event/round within the competition when the source
   is structured into named tests. Use the lowercase short form, e.g.:
   - BMT → `general`, `algebra`, `discrete`, `calculus`, `geometry`

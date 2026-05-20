@@ -2,6 +2,7 @@
 consumer can import these without pulling in sqlite3 or filesystem helpers."""
 
 import dataclasses
+import re
 from dataclasses import asdict, dataclass
 from typing import NamedTuple
 
@@ -47,3 +48,60 @@ DIFFICULTY_BUCKETS: list[Bucket] = [
     Bucket("Hard (3–10m)", 180.0, 600.0),
     Bucket("Very Hard (>10m)", 600.0, float("inf")),
 ]
+
+
+CANONICAL_SOURCE_EXAMS: tuple[str, ...] = (
+    "AMC8",
+    "AMC10A",
+    "AMC10B",
+    "AMC12A",
+    "AMC12B",
+    "AIME",
+    "BMT",
+    "HMMT",
+    "ARML",
+    "MathCounts",
+    "PiMathContest",
+    "Putnam",
+)
+
+# Aliases the model has been observed to emit (or that a human might type)
+# mapped to their canonical form. Keep keys human-readable here; lookup
+# normalizes (lowercase, alphanumeric-only) so spacing/punctuation/case
+# variants all collapse to the same key.
+_SOURCE_EXAM_ALIAS_PAIRS: tuple[tuple[str, str], ...] = (
+    ("MATHCOUNTS", "MathCounts"),
+    ("Mathcounts", "MathCounts"),
+    ("Math Counts", "MathCounts"),
+    ("MathCount", "MathCounts"),
+    ("PiMC", "PiMathContest"),
+    ("Pi MC", "PiMathContest"),
+    ("PMC", "PiMathContest"),
+    ("Pi Math Contest", "PiMathContest"),
+    ("Pi Math", "PiMathContest"),
+)
+
+
+def _exam_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+_SOURCE_EXAM_BY_KEY: dict[str, str] = {
+    _exam_key(name): name for name in CANONICAL_SOURCE_EXAMS
+}
+for _alias, _canonical in _SOURCE_EXAM_ALIAS_PAIRS:
+    _SOURCE_EXAM_BY_KEY.setdefault(_exam_key(_alias), _canonical)
+
+
+def canonicalize_source_exam(raw: str | None) -> str:
+    """Map a model-emitted exam name to its canonical form.
+
+    Returns ``"Unknown"`` for empty input. If the value (after
+    case/whitespace/punctuation normalization) matches a canonical exam
+    or a known alias, returns the canonical name. Otherwise returns the
+    input trimmed unchanged — new contests can still enter the system,
+    they just won't be auto-renamed."""
+    text = (raw or "").strip()
+    if not text:
+        return "Unknown"
+    return _SOURCE_EXAM_BY_KEY.get(_exam_key(text), text)

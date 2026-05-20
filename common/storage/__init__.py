@@ -57,9 +57,16 @@ from .stats import (
     index_summary,
     subcategory_counts,
 )
-from .vocab import DIFFICULTY_BUCKETS, Bucket, Problem
+from .vocab import (
+    CANONICAL_SOURCE_EXAMS,
+    DIFFICULTY_BUCKETS,
+    Bucket,
+    Problem,
+    canonicalize_source_exam,
+)
 
 __all__ = [
+    "CANONICAL_SOURCE_EXAMS",
     "DATA_DIR",
     "DIFFICULTY_BUCKETS",
     "DONE",
@@ -73,6 +80,7 @@ __all__ = [
     "QueueItem",
     "REPO_ROOT",
     "advance_to_problem_solve",
+    "canonicalize_source_exam",
     "category_counts",
     "category_edit_examples",
     "claim_next_image_scan",

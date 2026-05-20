@@ -114,7 +114,7 @@ def _build_parsed_server(
             saved_bbox = [float(v) for v in bbox]
             saved_figure_page = figure_page
 
-        source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
+        source_exam = storage.canonicalize_source_exam(args.get("source_exam"))
         subexam = (args.get("subexam") or "").strip()
         year = str(args.get("year") or "Unknown").strip() or "Unknown"
         source_page_raw = args.get("source_page")
