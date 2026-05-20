@@ -121,8 +121,9 @@
       : "";
 
     const examText = p.source_exam && p.source_exam !== "Unknown" ? p.source_exam : "";
+    const subexamText = (p.subexam || "").trim();
     const yearText = p.year && p.year !== "Unknown" ? p.year : "";
-    const sourceLabel = [yearText, examText].filter(Boolean).join(" · ");
+    const sourceLabel = [yearText, examText, subexamText].filter(Boolean).join(" · ");
     const sourceSpan = sourceLabel ? `<span class="source">${escapeHtml(sourceLabel)}</span>` : "";
     const rawLinkSpan = p.source_image
       ? `<span class="raw-link"><a href="/raw/${encodeURIComponent(p.source_image)}" target="_blank" rel="noopener">raw${p.source_page ? ` p${p.source_page}` : ""}</a></span>`
@@ -356,9 +357,14 @@
     const backdrop = editor.querySelector(".figure-editor-backdrop");
     const rotationSel = editor.querySelector(".figure-editor-rotation");
     const statusEl = editor.querySelector(".figure-editor-status");
+    const prevBtn = editor.querySelector(".figure-editor-prev");
+    const nextBtn = editor.querySelector(".figure-editor-next");
+    const pageInfoEl = editor.querySelector(".figure-editor-page-info");
 
     const problemId = problemEl.dataset.id;
     let bbox = null; // [x0, y0, x1, y1] normalized in [0,1]
+    let currentPage = null;
+    let pageCount = null;
 
     selection.hidden = true;
     saveBtn.disabled = true;
@@ -366,6 +372,48 @@
     statusEl.textContent = "Loading source page…";
     pageImg.removeAttribute("src");
     editor.removeAttribute("hidden");
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    if (pageInfoEl) pageInfoEl.textContent = "";
+
+    function updatePagerUI() {
+      if (pageInfoEl) {
+        pageInfoEl.textContent = currentPage && pageCount
+          ? `Page ${currentPage} of ${pageCount}`
+          : "";
+      }
+      if (prevBtn) prevBtn.disabled = !currentPage || currentPage <= 1;
+      if (nextBtn) nextBtn.disabled = !currentPage || !pageCount || currentPage >= pageCount;
+    }
+
+    async function loadPage(page) {
+      bbox = null;
+      selection.hidden = true;
+      saveBtn.disabled = true;
+      statusEl.textContent = "Loading source page…";
+      const url = page == null
+        ? `/api/problems/${encodeURIComponent(problemId)}/source_page?t=${Date.now()}`
+        : `/api/problems/${encodeURIComponent(problemId)}/source_page?page=${page}&t=${Date.now()}`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          let msg = `HTTP ${resp.status}`;
+          try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+          throw new Error(msg);
+        }
+        const p = parseInt(resp.headers.get("X-Page") || "", 10);
+        const tot = parseInt(resp.headers.get("X-Page-Count") || "", 10);
+        if (p) currentPage = p;
+        if (tot) pageCount = tot;
+        const blob = await resp.blob();
+        const prevUrl = pageImg.src;
+        pageImg.src = URL.createObjectURL(blob);
+        if (prevUrl && prevUrl.startsWith("blob:")) URL.revokeObjectURL(prevUrl);
+      } catch (e) {
+        statusEl.textContent = `Failed to load source page: ${e.message}`;
+      }
+      updatePagerUI();
+    }
 
     pageImg.onload = () => {
       statusEl.textContent = "Click and drag to select the figure region.";
@@ -373,7 +421,18 @@
     pageImg.onerror = () => {
       statusEl.textContent = "Failed to load source page.";
     };
-    pageImg.src = `/api/problems/${encodeURIComponent(problemId)}/source_page?t=${Date.now()}`;
+    loadPage(null);
+
+    function goPrev() {
+      if (!currentPage || currentPage <= 1) return;
+      loadPage(currentPage - 1);
+    }
+    function goNext() {
+      if (!currentPage || !pageCount || currentPage >= pageCount) return;
+      loadPage(currentPage + 1);
+    }
+    if (prevBtn) prevBtn.onclick = goPrev;
+    if (nextBtn) nextBtn.onclick = goNext;
 
     function updateSelectionBox() {
       if (!bbox) { selection.hidden = true; return; }
@@ -450,6 +509,12 @@
       document.removeEventListener("keydown", onKey);
       pageImg.onload = null;
       pageImg.onerror = null;
+      if (prevBtn) prevBtn.onclick = null;
+      if (nextBtn) nextBtn.onclick = null;
+      if (pageImg.src && pageImg.src.startsWith("blob:")) {
+        URL.revokeObjectURL(pageImg.src);
+      }
+      pageImg.removeAttribute("src");
     }
     function onKey(ev) {
       if (ev.key === "Escape") { ev.preventDefault(); close(); }
@@ -468,7 +533,11 @@
         const resp = await fetch(`/api/problems/${encodeURIComponent(problemId)}/figure_bbox`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bbox, rotation: parseInt(rotationSel.value, 10) || 0 }),
+          body: JSON.stringify({
+            bbox,
+            rotation: parseInt(rotationSel.value, 10) || 0,
+            page: currentPage,
+          }),
         });
         if (!resp.ok) {
           let msg = `HTTP ${resp.status}`;

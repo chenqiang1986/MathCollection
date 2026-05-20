@@ -58,55 +58,65 @@
   <h2>All saved problems (<span id="total-count">…</span>)</h2>
 
   <div class="filters" id="filters" hidden>
-    <label>Category:
-      <select id="filter-category">
-        <option value="">All</option>
-      </select>
-    </label>
-    <label>Subcategory:
-      <select id="filter-subcategory">
-        <option value="">All</option>
-      </select>
-    </label>
-    <label>Exam:
-      <select id="filter-exam">
-        <option value="">All</option>
-      </select>
-    </label>
-    <label>Subexam:
-      <select id="filter-subexam">
-        <option value="">All</option>
-      </select>
-    </label>
-    <label>Year:
-      <select id="filter-year">
-        <option value="">All</option>
-      </select>
-    </label>
-    <label>Figure:
-      <select id="filter-figure">
-        <option value="">All</option>
-        <option value="1">With figure</option>
-        <option value="0">Without figure</option>
-      </select>
-    </label>
-    <label class="range-label">Difficulty Measure:
-      <div class="range-slider" data-max="60">
-        <div class="range-track"></div>
-        <div class="range-fill"></div>
-        <input type="range" id="filter-time-min" min="0" max="60" step="1" value="0">
-        <input type="range" id="filter-time-max" min="0" max="60" step="1" value="60">
-      </div>
-      <span id="filter-time-display" class="range-display">0s – 60s</span>
-    </label>
-    <span id="filter-count" class="progress-text"></span>
+    <div class="filter-row">
+      <label>Category:
+        <select id="filter-category">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Subcategory:
+        <select id="filter-subcategory">
+          <option value="">All</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-row">
+      <label>Exam:
+        <select id="filter-exam">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Subexam:
+        <select id="filter-subexam">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Year:
+        <select id="filter-year">
+          <option value="">All</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-row">
+      <label>Figure:
+        <select id="filter-figure">
+          <option value="">All</option>
+          <option value="1">With figure</option>
+          <option value="0">Without figure</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-row">
+      <label class="range-label">Difficulty Measure:
+        <div class="range-slider" data-max="60">
+          <div class="range-track"></div>
+          <div class="range-fill"></div>
+          <input type="range" id="filter-time-min" min="0" max="60" step="1" value="0">
+          <input type="range" id="filter-time-max" min="0" max="60" step="1" value="60">
+        </div>
+        <span id="filter-time-display" class="range-display">0s – 60s</span>
+      </label>
+      <span id="filter-count" class="progress-text"></span>
+    </div>
   </div>
   <div class="filters" id="print-bar" hidden>
-    <label>Print random
-      <input type="number" id="print-count" min="1" value="5">
-    </label>
-    <button type="button" id="print-btn">Print as PDF</button>
-    <span id="print-status" class="progress-text"></span>
+    <div class="filter-row">
+      <label>Print random
+        <input type="number" id="print-count" min="1" value="5">
+      </label>
+      <button type="button" id="print-btn">Print as PDF</button>
+      <span id="print-status" class="progress-text"></span>
+    </div>
   </div>
 
   <div id="print-header">
@@ -136,6 +146,11 @@
         <button type="button" class="figure-editor-close" aria-label="Close">×</button>
       </div>
       <p class="figure-editor-hint">Click and drag on the page to draw a new crop region. The selection is normalized to the rendered page.</p>
+      <div class="figure-editor-pager">
+        <button type="button" class="figure-editor-prev" aria-label="Previous page">‹ Prev</button>
+        <span class="figure-editor-page-info"></span>
+        <button type="button" class="figure-editor-next" aria-label="Next page">Next ›</button>
+      </div>
       <div class="figure-editor-stage">
         <img class="figure-editor-page" alt="source page">
         <div class="figure-editor-selection" hidden></div>

@@ -44,6 +44,21 @@ def _load_page_image(src_path: Path, page: int) -> Image.Image:
         return im.convert("RGB")
 
 
+def source_page_count(source_image: str) -> int:
+    """Number of pages in the source. 1 for raster images; the PDF page
+    count for PDFs."""
+    src_path = raw_upload_path(source_image)
+    if not src_path.exists():
+        raise FileNotFoundError(f"source image not found: {src_path}")
+    if src_path.suffix.lower() != ".pdf":
+        return 1
+    pdf = pdfium.PdfDocument(str(src_path))
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
 def render_source_page_to_png_bytes(source_image: str, page: int = 1) -> bytes:
     """Render the given 1-indexed source page to PNG bytes. For PDFs the
     page is rasterized at the same scale used for cropping; for raster

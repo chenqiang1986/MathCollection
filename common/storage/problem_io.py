@@ -29,6 +29,7 @@ def save_problem(
     year: str = "Unknown",
     figure_image: str | None = None,
     figure_bbox: list[float] | None = None,
+    figure_page: int | None = None,
     solve_time_seconds: float | None = None,
     solve_time_estimated: int = 0,
 ) -> Problem:
@@ -49,6 +50,7 @@ def save_problem(
         year=year or "Unknown",
         figure_image=figure_image or None,
         figure_bbox=figure_bbox or None,
+        figure_page=figure_page,
     )
     _write_problem_file(problem)
     with _connect() as conn:

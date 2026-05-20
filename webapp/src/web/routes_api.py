@@ -218,13 +218,28 @@ def problem_source_page(problem_id):
         return jsonify({"error": "not found"}), 404
     if not problem.source_image:
         return jsonify({"error": "problem has no source_image"}), 404
+    default_page = problem.figure_page or problem.source_page or 1
+    raw_page = request.args.get("page")
+    try:
+        page = int(raw_page) if raw_page is not None else default_page
+    except ValueError:
+        return jsonify({"error": "page must be an integer"}), 400
+    try:
+        total = figures.source_page_count(problem.source_image)
+    except FileNotFoundError:
+        return jsonify({"error": "source image missing on disk"}), 404
+    page = max(1, min(total, page))
     try:
         png = figures.render_source_page_to_png_bytes(
-            problem.source_image, page=problem.source_page or 1
+            problem.source_image, page=page
         )
     except FileNotFoundError:
         return jsonify({"error": "source image missing on disk"}), 404
-    return Response(png, mimetype="image/png")
+    return Response(
+        png,
+        mimetype="image/png",
+        headers={"X-Page": str(page), "X-Page-Count": str(total)},
+    )
 
 
 @bp.route("/problems/<problem_id>/figure_bbox", methods=["POST"])
@@ -249,7 +264,16 @@ def update_figure_bbox(problem_id):
         rotation = int(payload.get("rotation", 0))
     except (TypeError, ValueError):
         return jsonify({"error": "rotation must be an int"}), 400
-    page = problem.source_page or 1
+    raw_page = payload.get("page")
+    if raw_page is None:
+        page = problem.figure_page or problem.source_page or 1
+    else:
+        try:
+            page = int(raw_page)
+        except (TypeError, ValueError):
+            return jsonify({"error": "page must be an int"}), 400
+        if page < 1:
+            return jsonify({"error": "page must be >= 1"}), 400
     try:
         new_figure = figures.save_figure(
             problem.source_image, bbox, rotation=rotation, page=page
@@ -261,7 +285,10 @@ def update_figure_bbox(problem_id):
         if old.exists():
             old.unlink()
     updated = storage.update_problem(
-        problem_id, figure_image=new_figure, figure_bbox=bbox
+        problem_id,
+        figure_image=new_figure,
+        figure_bbox=bbox,
+        figure_page=page,
     )
     return jsonify({"problem": updated.to_dict()})
 

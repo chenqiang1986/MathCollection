@@ -106,11 +106,13 @@ def _build_parsed_server(
         figure_page = int(args.get("figure_page") or 1)
         figure_image: str | None = None
         saved_bbox: list[float] | None = None
+        saved_figure_page: int | None = None
         if bbox and source_image:
             figure_image = figures.save_figure(
                 source_image, bbox, rotation=rotation, page=figure_page
             )
             saved_bbox = [float(v) for v in bbox]
+            saved_figure_page = figure_page
 
         source_exam = (args.get("source_exam") or "Unknown").strip() or "Unknown"
         subexam = (args.get("subexam") or "").strip()
@@ -131,6 +133,7 @@ def _build_parsed_server(
             year=year,
             figure_image=figure_image,
             figure_bbox=saved_bbox,
+            figure_page=saved_figure_page,
         )
         saved.append(problem)
         return {

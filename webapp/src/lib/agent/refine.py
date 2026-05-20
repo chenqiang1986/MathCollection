@@ -108,6 +108,7 @@ def _build_refine_store(
             problem.id,
             figure_image=new_figure,
             figure_bbox=bbox,
+            figure_page=page,
         )
         chosen.append(updated)
         return {
