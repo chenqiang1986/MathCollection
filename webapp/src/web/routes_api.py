@@ -5,7 +5,7 @@ from flask import Blueprint, Response, jsonify, request
 from common import figures, storage
 from webapp.src.lib import agent
 
-from webapp.src.web.auth import login_required, upload_allowed_required
+from webapp.src.web.auth import login_required, read_context, upload_allowed_required
 
 DEFAULT_PAGE_SIZE = 5
 MAX_PAGE_SIZE = 50
@@ -52,13 +52,13 @@ def _parse_filters() -> dict:
 
 
 @bp.route("/stats/categories", methods=["GET"])
-@login_required
+@read_context
 def stats_categories():
     return jsonify({"categories": storage.category_counts()})
 
 
 @bp.route("/stats/subcategories", methods=["GET"])
-@login_required
+@read_context
 def stats_subcategories():
     category = request.args.get("category") or None
     return jsonify(
@@ -70,7 +70,7 @@ def stats_subcategories():
 
 
 @bp.route("/stats/difficulty", methods=["GET"])
-@login_required
+@read_context
 def stats_difficulty():
     category = request.args.get("category") or None
     subcategory = request.args.get("subcategory") or None
@@ -84,7 +84,7 @@ def stats_difficulty():
 
 
 @bp.route("/summary", methods=["GET"])
-@login_required
+@read_context
 def summary():
     return jsonify(storage.index_summary())
 
@@ -115,7 +115,7 @@ def queue_retry():
 
 
 @bp.route("/problems", methods=["GET"])
-@login_required
+@read_context
 def problems():
     filters = _parse_filters()
     try:
@@ -209,7 +209,7 @@ def refine_problem(problem_id):
 
 
 @bp.route("/problems/<problem_id>/source_page", methods=["GET"])
-@login_required
+@read_context
 def problem_source_page(problem_id):
     """Render the problem's recorded source page as a PNG so the UI can
     show it for manual figure-bbox adjustment."""
@@ -294,7 +294,7 @@ def update_figure_bbox(problem_id):
 
 
 @bp.route("/sample", methods=["GET"])
-@login_required
+@read_context
 def sample():
     filters = _parse_filters()
     try:

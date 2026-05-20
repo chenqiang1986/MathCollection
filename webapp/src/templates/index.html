@@ -22,7 +22,7 @@
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if logged_in %} <a href="{{ url_for('pages.queue') }}">Processing queue →</a> · <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if can_upload %} <a href="{{ url_for('pages.queue') }}">Processing queue →</a> · <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -32,7 +32,7 @@
 
   {% if not logged_in %}
     <div class="login-gate">
-      <p>Please <a href="{{ url_for('auth.login') }}">sign in with Google</a> to upload problems and view your collection.</p>
+      <p>Browsing the shared guest collection in read-only mode. <a href="{{ url_for('auth.login') }}">Sign in with Google</a> to upload your own problems.</p>
     </div>
   {% elif not can_upload %}
     <div class="login-gate">
@@ -40,7 +40,8 @@
     </div>
   {% endif %}
 
-  <form id="upload-form" action="{{ url_for('uploads.upload') }}" method="post" enctype="multipart/form-data" {% if not logged_in or not can_upload %}style="display:none"{% endif %}>
+  {% if can_upload %}
+  <form id="upload-form" action="{{ url_for('uploads.upload') }}" method="post" enctype="multipart/form-data">
     <label>Images or PDFs (PNG, JPEG, GIF, WebP, PDF, max 10 MB total):</label><br>
     <input type="file" name="images" accept="image/*,application/pdf,.pdf" multiple required>
     <label style="display:block; margin-top:0.5rem;">
@@ -53,8 +54,8 @@
       <div class="progress-text">Uploading…</div>
     </div>
   </form>
+  {% endif %}
 
-  {% if logged_in %}
   <h2>All saved problems (<span id="total-count">…</span>)</h2>
 
   <div class="filters" id="filters" hidden>
@@ -170,7 +171,6 @@
       </div>
     </div>
   </div>
-  {% endif %}
   {% endif %}
 
 </body>

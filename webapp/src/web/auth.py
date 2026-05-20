@@ -53,6 +53,24 @@ def login_required(view):
     return wrapper
 
 
+def read_context(view):
+    """Bind storage to the signed-in user's bucket, or to the shared guest
+    bucket for anonymous visitors. Use on read-only endpoints we want to
+    expose without login."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        user = current_user()
+        email = storage_email((user or {}).get("email"))
+        token = storage.set_current_user(email)
+        try:
+            if email == GUEST_USER:
+                init_user()
+            return view(*args, **kwargs)
+        finally:
+            storage.reset_current_user(token)
+    return wrapper
+
+
 def upload_allowed_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):

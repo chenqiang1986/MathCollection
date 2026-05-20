@@ -1,12 +1,12 @@
 # Build from the repo root so `common/`, `worker/`, and `webapp/` are all
 # in the build context:
-#   docker build -f webapp/Dockerfile -t mathcollection-web .
+#   docker build -t mathcollection-web .
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8080 \
+    PORT=8000 \
     PYTHONPATH=/app
 
 WORKDIR /app
@@ -27,7 +27,7 @@ COPY webapp ./webapp
 
 RUN mkdir -p /app/data
 
-EXPOSE 8080
+EXPOSE 8000
 
 # Bind gunicorn to $PORT. One worker because the app uses a per-request
 # SQLite file under data/<user>/. The Flask app object is at

@@ -18,7 +18,7 @@ from flask import (
     url_for,
 )
 from common import storage
-from webapp.src.web.auth import login_required, upload_allowed_required
+from webapp.src.web.auth import login_required, read_context, upload_allowed_required
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
 
@@ -93,12 +93,12 @@ def upload():
 
 
 @bp.route("/figures/<path:filename>", methods=["GET"])
-@login_required
+@read_context
 def serve_figure(filename):
     return send_from_directory(storage.figures_dir(), filename)
 
 
 @bp.route("/raw/<path:filename>", methods=["GET"])
-@login_required
+@read_context
 def serve_raw(filename):
     return send_from_directory(storage.raw_uploads_dir(), filename)
