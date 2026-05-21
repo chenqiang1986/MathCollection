@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: math-mistake-tracker
+  namespace: __NAMESPACE__
+  labels:
+    app: math-mistake-tracker
+spec:
+  replicas: 1
+  # Per-user SQLite files on a GCS Fuse mount can't tolerate two pods writing
+  # at once, so never run old+new together during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: math-mistake-tracker
+  template:
+    metadata:
+      labels:
+        app: math-mistake-tracker
+      annotations:
+        # Tells GKE to inject the gcsfuse sidecar into this pod.
+        gke-gcsfuse/volumes: "true"
+    spec:
+      serviceAccountName: __KSA_NAME__
+      containers:
+        - name: webapp
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: webapp-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: data-vol
+              mountPath: /app/data
+            # The Secret Manager CSI mount is required even though the app
+            # reads env vars: the SecretProviderClass only syncs its k8s
+            # Secret while a pod has the volume mounted.
+            - name: secrets-store
+              mountPath: /var/secrets
+              readOnly: true
+      volumes:
+        - name: data-vol
+          csi:
+            driver: gcsfuse.csi.storage.gke.io
+            volumeAttributes:
+              bucketName: __BUCKET__
+              mountOptions: "implicit-dirs"
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: webapp-secrets

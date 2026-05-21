@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # ---- Required: edit these for your project ----
 PROJECT_ID="${PROJECT_ID:-math-mistake-tracker}"
