@@ -180,12 +180,11 @@ def _drive_stage(
     try:
         result = run_fn(item)
     except Exception as exc:
-        storage.mark_failed(item.filename, error=f"{stage}: {exc!r}")
         print(
-            f"[worker] FAILED {item.filename} in {stage}: {exc!r}",
+            f"[worker] ERROR {item.filename} in {stage}: {exc!r}",
             flush=True,
         )
-        return agent.StageResult(
+        result = agent.StageResult(
             saved=[], complete=False, summary=f"error: {exc!r}"
         )
     _handle_result(
