@@ -11,9 +11,8 @@
 #      GCS Fuse CSI driver enabled (if missing).
 #   6. Bind the Kubernetes ServiceAccount to the GCP service account
 #      via Workload Identity.
-#   7. (No-op step kept for numbering parity with deploy_gcp.sh — the
-#      SecretProviderClass in ./k8s pulls secrets at pod start via the
-#      GKE Secret Manager add-on.)
+#   7. (No-op — secrets are fetched at container startup by the entrypoint
+#      script via the Secret Manager API, authenticated via Workload Identity.)
 #   8. Render the YAML templates in ./k8s and `kubectl apply` them.
 #   9. Wait for the Deployment to roll out and the LoadBalancer to get an IP.
 
@@ -100,28 +99,21 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
   --role="roles/storage.objectAdmin" >/dev/null
 
 # ---- 5. GKE Standard cluster ----
-# Workload Identity, GCS Fuse CSI driver, and the Secret Manager add-on
-# (which installs the Secrets Store CSI driver + GCP provider) are all
-# required by the manifests. Cluster creation takes ~5-8 minutes the
-# first time.
+# Workload Identity + GCS Fuse CSI driver are required by the manifests.
+# Secrets are fetched by the container's entrypoint via the Secret Manager
+# API (auth = Workload Identity), so no Secret Manager CSI add-on is needed.
+# Cluster creation takes ~5-8 minutes the first time.
 if ! gcloud container clusters describe "${CLUSTER}" \
        --zone="${ZONE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud container clusters create "${CLUSTER}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --release-channel=regular \
-    --machine-type=e2-small \
+    --machine-type=e2-standard-2 \
     --num-nodes=2 \
     --workload-pool="${PROJECT_ID}.svc.id.goog" \
     --workload-metadata=GKE_METADATA \
-    --addons=GcsFuseCsiDriver \
-    --enable-secret-manager
-else
-  # Ensure the Secret Manager add-on is on for pre-existing clusters.
-  # No-op (and fast) if it's already enabled.
-  gcloud container clusters update "${CLUSTER}" \
-    --zone="${ZONE}" --project="${PROJECT_ID}" \
-    --enable-secret-manager >/dev/null 2>&1 || true
+    --addons=GcsFuseCsiDriver
 fi
 
 gcloud container clusters get-credentials "${CLUSTER}" \

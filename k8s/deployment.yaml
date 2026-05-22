@@ -30,9 +30,13 @@ spec:
           ports:
             - name: http
               containerPort: 8000
-          envFrom:
-            - secretRef:
-                name: webapp-secrets
+          # GCP_PROJECT_ID tells webapp/entrypoint.sh to hydrate secrets from
+          # Secret Manager (auth via Workload Identity on the pod's KSA).
+          env:
+            - name: GCP_PROJECT_ID
+              value: __PROJECT_ID__
+            - name: SECRET_PREFIX
+              value: __SECRET_PREFIX__
           resources:
             requests:
               cpu: "250m"
@@ -55,12 +59,6 @@ spec:
           volumeMounts:
             - name: data-vol
               mountPath: /app/data
-            # The Secret Manager CSI mount is required even though the app
-            # reads env vars: the SecretProviderClass only syncs its k8s
-            # Secret while a pod has the volume mounted.
-            - name: secrets-store
-              mountPath: /var/secrets
-              readOnly: true
       volumes:
         - name: data-vol
           csi:
@@ -68,9 +66,3 @@ spec:
             volumeAttributes:
               bucketName: __BUCKET__
               mountOptions: "implicit-dirs"
-        - name: secrets-store
-          csi:
-            driver: secrets-store.csi.k8s.io
-            readOnly: true
-            volumeAttributes:
-              secretProviderClass: webapp-secrets

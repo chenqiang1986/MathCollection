@@ -29,12 +29,6 @@ RUN mkdir -p /app/data
 
 EXPOSE 8000
 
-# Bind gunicorn to $PORT. One worker because the app uses a per-request
-# SQLite file under data/<user>/. The Flask app object is at
-# `webapp.src.app:app` (PYTHONPATH=/app makes this importable).
-CMD exec gunicorn \
-    --bind "0.0.0.0:${PORT}" \
-    --workers 1 \
-    --threads 8 \
-    --timeout 120 \
-    "webapp.src.app:app"
+# Entrypoint hydrates secrets from Secret Manager when GCP_PROJECT_ID is set
+# (no-op on Cloud Run / local), then execs gunicorn. See webapp/entrypoint.sh.
+CMD ["/app/webapp/entrypoint.sh"]
