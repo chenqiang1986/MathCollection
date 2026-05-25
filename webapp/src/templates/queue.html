@@ -34,7 +34,7 @@
   <div class="user-bar">
     {% if current_user %}
       <span class="user-info">
-        {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar">{% endif %}
+        {% if current_user.picture %}<img src="{{ current_user.picture }}" alt="" class="user-avatar" referrerpolicy="no-referrer">{% endif %}
         Signed in as <strong>{{ current_user.email }}</strong>
       </span>
       <a href="{{ url_for('auth.logout') }}" class="user-action">Sign out</a>
