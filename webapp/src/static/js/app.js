@@ -143,7 +143,7 @@
     if (p.figure_image) {
       const adjustable = CAN_UPLOAD && p.source_image ? " adjustable" : "";
       const titleAttr = adjustable ? ' title="Double-click to adjust crop"' : "";
-      html += `<div class="diagram"><img class="figure-image${adjustable}" src="/figures/${encodeURIComponent(p.figure_image)}" alt="figure"${titleAttr}></div>`;
+      html += `<div class="diagram"><img class="figure-image${adjustable}" src="${URL_PREFIX}/figures/${encodeURIComponent(p.figure_image)}" alt="figure"${titleAttr}></div>`;
     } else if (p.diagram_svg) {
       html += `<div class="diagram">${p.diagram_svg}</div>`;
     }
