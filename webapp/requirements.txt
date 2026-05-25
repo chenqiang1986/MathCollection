@@ -6,4 +6,3 @@ pypdfium2>=4.0
 gunicorn>=20.0
 Authlib>=1.3
 requests>=2.31
-google-cloud-secret-manager>=2.20

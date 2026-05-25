@@ -30,13 +30,12 @@ spec:
           ports:
             - name: http
               containerPort: 8000
-          # GCP_PROJECT_ID tells webapp/entrypoint.sh to hydrate secrets from
-          # Secret Manager (auth via Workload Identity on the pod's KSA).
-          env:
-            - name: GCP_PROJECT_ID
-              value: __PROJECT_ID__
-            - name: SECRET_PREFIX
-              value: __SECRET_PREFIX__
+          # Secrets are materialized into the `webapp-secrets` k8s Secret by
+          # ESO, based on k8s/externalsecret.yaml. envFrom hydrates them into
+          # the container's environment at start time.
+          envFrom:
+            - secretRef:
+                name: webapp-secrets
           resources:
             requests:
               cpu: "250m"
