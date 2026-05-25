@@ -30,7 +30,7 @@
     .queue-controls label { font-size: 0.9rem; color: #555; }
   </style>
 </head>
-<body>
+<body data-url-prefix="{{ request.script_root }}">
   <div class="user-bar">
     {% if current_user %}
       <span class="user-info">

@@ -9,7 +9,7 @@
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body data-can-upload="{{ '1' if can_upload else '0' }}">
+<body data-can-upload="{{ '1' if can_upload else '0' }}" data-url-prefix="{{ request.script_root }}">
   <div class="user-bar">
     {% if current_user %}
       <span class="user-info">

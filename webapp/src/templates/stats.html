@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script defer src="{{ url_for('static', filename='js/stats.js') }}"></script>
 </head>
-<body>
+<body data-url-prefix="{{ request.script_root }}">
   <div class="user-bar">
     {% if current_user %}
       <span class="user-info">

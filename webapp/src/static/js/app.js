@@ -1,6 +1,7 @@
 (function () {
   const PAGE_SIZE = 5;
   const CAN_UPLOAD = document.body.dataset.canUpload === "1";
+  const URL_PREFIX = document.body.dataset.urlPrefix || "";
 
   const KATEX_OPTS = {
     delimiters: [
@@ -126,7 +127,7 @@
     const sourceLabel = [yearText, examText, subexamText].filter(Boolean).join(" · ");
     const sourceSpan = sourceLabel ? `<span class="source">${escapeHtml(sourceLabel)}</span>` : "";
     const rawLinkSpan = p.source_image
-      ? `<span class="raw-link"><a href="/raw/${encodeURIComponent(p.source_image)}" target="_blank" rel="noopener">raw${p.source_page ? ` p${p.source_page}` : ""}</a></span>`
+      ? `<span class="raw-link"><a href="${URL_PREFIX}/raw/${encodeURIComponent(p.source_image)}" target="_blank" rel="noopener">raw${p.source_page ? ` p${p.source_page}` : ""}</a></span>`
       : "";
 
     let html = actionButtons +
@@ -244,7 +245,7 @@
     params.set("page_size", String(PAGE_SIZE));
     let data;
     try {
-      const resp = await fetch(`/api/problems?${params.toString()}`);
+      const resp = await fetch(`${URL_PREFIX}/api/problems?${params.toString()}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       data = await resp.json();
     } catch (e) {
@@ -276,7 +277,7 @@
     const btn = problemEl.querySelector(".delete-btn");
     if (btn) btn.disabled = true;
     try {
-      const resp = await fetch(`/api/problems/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const resp = await fetch(`${URL_PREFIX}/api/problems/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     } catch (e) {
       if (btn) btn.disabled = false;
@@ -392,8 +393,8 @@
       saveBtn.disabled = true;
       statusEl.textContent = "Loading source page…";
       const url = page == null
-        ? `/api/problems/${encodeURIComponent(problemId)}/source_page?t=${Date.now()}`
-        : `/api/problems/${encodeURIComponent(problemId)}/source_page?page=${page}&t=${Date.now()}`;
+        ? `${URL_PREFIX}/api/problems/${encodeURIComponent(problemId)}/source_page?t=${Date.now()}`
+        : `${URL_PREFIX}/api/problems/${encodeURIComponent(problemId)}/source_page?page=${page}&t=${Date.now()}`;
       try {
         const resp = await fetch(url);
         if (!resp.ok) {
@@ -530,7 +531,7 @@
       cancelBtn.disabled = true;
       statusEl.textContent = "Saving…";
       try {
-        const resp = await fetch(`/api/problems/${encodeURIComponent(problemId)}/figure_bbox`, {
+        const resp = await fetch(`${URL_PREFIX}/api/problems/${encodeURIComponent(problemId)}/figure_bbox`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -657,7 +658,7 @@
       statusEl.textContent = "Saving…";
 
       try {
-        const resp = await fetch(`/api/problems/${encodeURIComponent(problemEl.dataset.id)}/category`, {
+        const resp = await fetch(`${URL_PREFIX}/api/problems/${encodeURIComponent(problemEl.dataset.id)}/category`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category: newCat, subcategory: newSub }),
@@ -867,7 +868,7 @@
 
     let data;
     try {
-      const resp = await fetch(`/api/problems/${encodeURIComponent(id)}/refine`, {
+      const resp = await fetch(`${URL_PREFIX}/api/problems/${encodeURIComponent(id)}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hint })
@@ -915,7 +916,7 @@
   async function loadSummary() {
     let summary;
     try {
-      const resp = await fetch("/api/summary");
+      const resp = await fetch(`${URL_PREFIX}/api/summary`);
       summary = await resp.json();
     } catch (e) {
       filtersEl.hidden = true;
@@ -1033,7 +1034,7 @@
       params.set("n", String(n));
       let data;
       try {
-        const resp = await fetch(`/api/sample?${params.toString()}`);
+        const resp = await fetch(`${URL_PREFIX}/api/sample?${params.toString()}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         data = await resp.json();
       } catch (e) {

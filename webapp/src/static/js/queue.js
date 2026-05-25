@@ -1,3 +1,5 @@
+const URL_PREFIX = document.body.dataset.urlPrefix || "";
+
 const STATUS_LABELS = {
   processing_image_scan: "Scanning",
   processing_problem_solve: "Solving",
@@ -122,7 +124,7 @@ async function retryFailed(filename, button) {
   const original = button.textContent;
   button.textContent = "Retrying…";
   try {
-    const resp = await fetch("/api/queue/retry", {
+    const resp = await fetch(`${URL_PREFIX}/api/queue/retry`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -152,7 +154,7 @@ function escapeHtml(s) {
 
 async function refresh() {
   try {
-    const resp = await fetch("/api/queue", { credentials: "same-origin" });
+    const resp = await fetch(`${URL_PREFIX}/api/queue`, { credentials: "same-origin" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     renderSummary(data.counts || {});

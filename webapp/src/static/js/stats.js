@@ -1,4 +1,5 @@
 (function () {
+  const URL_PREFIX = document.body.dataset.urlPrefix || "";
   const catChartEl = document.getElementById("chart-categories");
   const subChartEl = document.getElementById("chart-subcategories");
   const subTitleEl = document.getElementById("subcategory-title");
@@ -105,7 +106,7 @@
     catChartEl.innerHTML = `<p class="chart-empty"><em>Loading…</em></p>`;
     let data;
     try {
-      const resp = await fetch("/api/stats/categories");
+      const resp = await fetch(`${URL_PREFIX}/api/stats/categories`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       data = await resp.json();
     } catch (e) {
@@ -127,7 +128,7 @@
     if (category) params.set("category", category);
     let data;
     try {
-      const resp = await fetch(`/api/stats/subcategories?${params.toString()}`);
+      const resp = await fetch(`${URL_PREFIX}/api/stats/subcategories?${params.toString()}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       data = await resp.json();
     } catch (e) {
@@ -160,7 +161,7 @@
     if (subcategory) params.set("subcategory", subcategory);
     let data;
     try {
-      const resp = await fetch(`/api/stats/difficulty?${params.toString()}`);
+      const resp = await fetch(`${URL_PREFIX}/api/stats/difficulty?${params.toString()}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       data = await resp.json();
     } catch (e) {
