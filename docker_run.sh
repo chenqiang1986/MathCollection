@@ -25,7 +25,7 @@ fi
 docker run -d \
     --name "$CONTAINER" \
     --env-file "$REPO_DIR/.env" \
-    -p "${HOST_PORT}:8000" \
+    -p "${HOST_PORT}:${HOST_PORT}" \
     -v "$REPO_DIR/data:/app/data" \
     -v "$HOME/.claude:/root/.claude" \
     -v "$HOME/.claude.json:/root/.claude.json" \
