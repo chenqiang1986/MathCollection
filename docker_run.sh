@@ -22,7 +22,7 @@ if [[ "$REBUILD" -eq 1 ]]; then
     echo "Built $IMAGE"
 fi
 
-docker run --rm -d \
+docker run -d \
     --name "$CONTAINER" \
     --env-file "$REPO_DIR/.env" \
     -p "${HOST_PORT}:8000" \
@@ -30,6 +30,7 @@ docker run --rm -d \
     -v "$HOME/.claude:/root/.claude" \
     -v "$HOME/.claude.json:/root/.claude.json" \
     -e CLAUDE_CODE_USE_OAUTH=1 \
+    --restart unless-stopped \
     "$IMAGE"
 
 echo "Running $CONTAINER on http://localhost:${HOST_PORT}"

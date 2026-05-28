@@ -21,13 +21,14 @@ if [[ "$REBUILD" -eq 1 ]]; then
     echo "Built $IMAGE"
 fi
 
-docker run --rm -d \
+docker run -d \
     --name "$CONTAINER" \
     --env-file "$REPO_DIR/.env" \
     -v "$REPO_DIR/data:/app/data" \
     -v "$HOME/.claude:/root/.claude" \
     -v "$HOME/.claude.json:/root/.claude.json" \
     -e CLAUDE_CODE_USE_OAUTH=1 \
+    --restart unless-stopped \
     "$IMAGE"
 
 echo "Running $CONTAINER (logs: docker logs -f $CONTAINER)"
