@@ -35,13 +35,14 @@ fi
 # sync. Version-gated, so this is cheap when nothing changed. `set -e` aborts
 # the launch if the DB is unreachable rather than serving against a missing
 # schema.
+#
+# Run this on the Mac host directly (not in a container): it talks to Postgres
+# over localhost via .env, and reads/writes the same data/ tree the container
+# mounts. Uses the project venv if present, else the system python3.
 echo "Applying DB schema + syncing data..."
-docker run --rm \
-    --env-file "$ENV_FILE" \
-    --add-host=host.docker.internal:host-gateway \
-    -v "$REPO_DIR/data:/app/data" \
-    "$IMAGE" \
-    python -m common.db_setup
+PYTHON="$REPO_DIR/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
+( cd "$REPO_DIR" && PYTHONPATH=. "$PYTHON" -m common.db_setup )
 
 docker run -d \
     --name "$CONTAINER" \
