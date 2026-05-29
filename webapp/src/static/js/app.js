@@ -282,27 +282,26 @@
     if (!name) { closeTagAddForm(form); return; }
     const current = currentProblemTags(problemEl);
     if (current.indexOf(name) !== -1) { closeTagAddForm(form); return; }
-    const isNew = !knownTags.some(t => t.name === name);
-    const comment = isNew && commentInput ? (commentInput.value || "").trim() : "";
+    const comment = commentInput ? (commentInput.value || "").trim() : "";
 
     form.querySelectorAll("input,button").forEach(el => { el.disabled = true; });
     statusEl.textContent = "Adding…";
 
-    // Register the tag (with its comment) before attaching it to the problem so
-    // a brand-new tag's description is persisted even if the comment is blank.
-    if (isNew) {
-      try {
-        const resp = await fetch(`${URL_PREFIX}/api/tags`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, comment }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.tag) recordKnownTag(data.tag.name, data.tag.comment || "");
-        }
-      } catch (_) { /* non-fatal: the tag still gets auto-registered on save */ }
-    }
+    // Register/update the tag (with its comment) before attaching it to the
+    // problem. This persists a brand-new tag's description and lets an existing
+    // tag's comment be edited from here. A blank comment leaves the stored one
+    // untouched (see upsert_tag), so it never clobbers an existing description.
+    try {
+      const resp = await fetch(`${URL_PREFIX}/api/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, comment }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.tag) recordKnownTag(data.tag.name, data.tag.comment || "");
+      }
+    } catch (_) { /* non-fatal: the tag still gets auto-registered on save */ }
     recordKnownTag(name, comment);
     const ok = await saveProblemTags(problemEl, current.concat([name]), statusEl);
     if (!ok) {
@@ -553,7 +552,8 @@
     }
   });
 
-  // Reveal the optional comment field only when the typed tag is brand new.
+  // Reveal the optional comment field for any tag. For an existing tag, prefill
+  // its current comment so it can be edited; for a brand-new tag, start blank.
   listEl.addEventListener("input", function (ev) {
     const input = ev.target.closest(".tag-add-input");
     if (!input) return;
@@ -561,8 +561,18 @@
     const commentInput = form && form.querySelector(".tag-add-comment");
     if (!commentInput) return;
     const name = (input.value || "").trim().toLowerCase().replace(/\s+/g, " ");
-    const isNew = name && !knownTags.some(t => t.name === name);
-    commentInput.hidden = !isNew;
+    commentInput.hidden = !name;
+    if (!name) { commentInput.dataset.forTag = ""; return; }
+    // Only sync the comment box when the resolved tag changes, so typing in the
+    // tag-name field doesn't clobber an edit the user already made to the comment.
+    if (commentInput.dataset.forTag !== name) {
+      commentInput.dataset.forTag = name;
+      const existing = knownTags.find(t => t.name === name);
+      commentInput.value = existing ? (existing.comment || "") : "";
+      commentInput.placeholder = existing
+        ? "edit comment (optional)"
+        : "describe this new tag (optional)";
+    }
   });
 
   listEl.addEventListener("keydown", function (ev) {
