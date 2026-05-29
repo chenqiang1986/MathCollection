@@ -98,6 +98,15 @@
       </label>
     </div>
     <div class="filter-row">
+      <label class="tag-filter-label">Tags:
+        <span class="tag-filter" id="tag-filter">
+          <span class="tag-chip-list" id="tag-filter-chips"></span>
+          <input type="text" id="tag-filter-input" class="tag-input" list="all-tags"
+                 placeholder="filter by tag…" autocomplete="off">
+        </span>
+      </label>
+    </div>
+    <div class="filter-row">
       <label class="range-label">Difficulty Measure:
         <div class="range-slider" data-max="60">
           <div class="range-track"></div>
@@ -137,6 +146,7 @@
   <div id="print-container" aria-hidden="true"></div>
   <datalist id="all-categories"></datalist>
   <datalist id="all-subcategories"></datalist>
+  <datalist id="all-tags"></datalist>
 
   {% if can_upload %}
   <div id="figure-editor" class="figure-editor" hidden role="dialog" aria-modal="true" aria-labelledby="figure-editor-title">

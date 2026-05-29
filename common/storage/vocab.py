@@ -3,7 +3,7 @@ consumer can import these without pulling in sqlite3 or filesystem helpers."""
 
 import dataclasses
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import NamedTuple
 
 
@@ -26,6 +26,8 @@ class Problem:
     figure_image: str | None = None
     figure_bbox: list[float] | None = None
     figure_page: int | None = None
+    # Free-form, customer-defined tags. Stored normalized (see normalize_tags).
+    tags: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Problem":
@@ -34,6 +36,27 @@ class Problem:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def normalize_tag(raw: str | None) -> str:
+    """Canonical form for a single tag: trimmed, lowercased, internal
+    whitespace collapsed. Returns "" for empty input."""
+    return re.sub(r"\s+", " ", (raw or "").strip().lower())
+
+
+def normalize_tags(raw: object) -> list[str]:
+    """Normalize an iterable of tags: drop empties and duplicates while
+    preserving first-seen order. Non-list input yields an empty list."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        tag = normalize_tag(item)
+        if tag and tag not in out:
+            out.append(tag)
+    return out
 
 
 class Bucket(NamedTuple):

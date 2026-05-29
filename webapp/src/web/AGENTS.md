@@ -18,6 +18,9 @@ HTTP-facing lives here.
   `problems/<id>/category` (POST, whitelist-only — manual category edit;
   also appends to the `category_edits` table for future re-classification),
   `problems/<id>/refine` (POST, whitelist-only),
+  `problems/<id>/tags` (POST, whitelist-only — set a problem's tag list),
+  `tags` (GET autocomplete hints; POST whitelist-only — create/update a tag
+  definition with an optional comment),
   `sample` (random for print-to-PDF), `stats/categories`, `stats/difficulty`.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the

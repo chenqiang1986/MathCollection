@@ -8,7 +8,7 @@ already exists.
 import sqlite3
 
 from common.storage.paths import index_path, user_dir
-from common.storage.vocab import Problem
+from common.storage.vocab import Problem, normalize_tags
 
 
 def _connect() -> sqlite3.Connection:
@@ -56,6 +56,25 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             problem.seq_no if problem.seq_no is not None else None,
         ),
     )
+    _sync_problem_tags(conn, problem)
+
+
+def _sync_problem_tags(conn: sqlite3.Connection, problem: Problem) -> None:
+    """Mirror `problem.tags` into the derived problem_tags table and ensure
+    each tag exists in the authoritative `tags` registry (empty comment if
+    new — an explicit POST /api/tags can add the comment later)."""
+    conn.execute("DELETE FROM problem_tags WHERE problem_id = ?", (problem.id,))
+    tags = normalize_tags(problem.tags)
+    if not tags:
+        return
+    conn.executemany(
+        "INSERT OR IGNORE INTO problem_tags (problem_id, tag) VALUES (?, ?)",
+        [(problem.id, t) for t in tags],
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO tags (name, comment, created_at) VALUES (?, '', ?)",
+        [(t, problem.created_at) for t in tags],
+    )
 
 
 def problems_by_source_and_category(
@@ -100,9 +119,11 @@ def _build_where(
     subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
+    tags: list[str] | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause. If min_time/max_time covers the full slider range,
-    do not exclude rows with NULL solve_time_seconds."""
+    do not exclude rows with NULL solve_time_seconds. Multiple tags match with
+    OR semantics (a problem qualifies if it carries any of them)."""
     where: list[str] = []
     params: list = []
     if category:
@@ -124,6 +145,13 @@ def _build_where(
         where.append("has_figure = 1")
     elif has_figure is False:
         where.append("has_figure = 0")
+    if tags:
+        placeholders = ", ".join("?" for _ in tags)
+        where.append(
+            "id IN (SELECT problem_id FROM problem_tags "
+            f"WHERE tag IN ({placeholders}))"
+        )
+        params.extend(tags)
     range_active = False
     if min_time is not None and (full_range_max is None or min_time > 0):
         range_active = True
@@ -153,10 +181,11 @@ def query_index(
     subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
+    tags: list[str] | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure,
+        source_exam, subexam, year, has_figure, tags,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -185,10 +214,11 @@ def sample_index(
     subexam: str | None = None,
     year: str | None = None,
     has_figure: bool | None = None,
+    tags: list[str] | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         category, subcategory, min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure,
+        source_exam, subexam, year, has_figure, tags,
     )
     with _connect() as conn:
         rows = conn.execute(

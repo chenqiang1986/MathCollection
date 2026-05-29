@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from common.storage.paths import figures_dir, problems_dir
 from common.storage.sql_index import _connect, _upsert_index_row
-from common.storage.vocab import Problem
+from common.storage.vocab import Problem, normalize_tags
 
 
 def _write_problem_file(problem: Problem) -> None:
@@ -32,6 +32,7 @@ def save_problem(
     figure_page: int | None = None,
     solve_time_seconds: float | None = None,
     solve_time_estimated: int = 0,
+    tags: list[str] | None = None,
 ) -> Problem:
     problem = Problem(
         id=str(uuid.uuid4()),
@@ -51,6 +52,7 @@ def save_problem(
         figure_image=figure_image or None,
         figure_bbox=figure_bbox or None,
         figure_page=figure_page,
+        tags=normalize_tags(tags),
     )
     _write_problem_file(problem)
     with _connect() as conn:
@@ -86,6 +88,7 @@ def delete_problem(problem_id: str) -> bool:
     with _connect() as conn:
         cur = conn.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
         deleted_rows = cur.rowcount
+        conn.execute("DELETE FROM problem_tags WHERE problem_id = ?", (problem_id,))
     return problem is not None or deleted_rows > 0
 
 

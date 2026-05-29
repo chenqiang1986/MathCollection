@@ -57,12 +57,15 @@ from common.storage.stats import (
     index_summary,
     subcategory_counts,
 )
+from common.storage.tags import list_tags, upsert_tag
 from common.storage.vocab import (
     CANONICAL_SOURCE_EXAMS,
     DIFFICULTY_BUCKETS,
     Bucket,
     Problem,
     canonicalize_source_exam,
+    normalize_tag,
+    normalize_tags,
 )
 
 __all__ = [
@@ -96,8 +99,11 @@ __all__ = [
     "index_summary",
     "list_items",
     "list_problems",
+    "list_tags",
     "mark_done",
     "mark_failed",
+    "normalize_tag",
+    "normalize_tags",
     "pending_count",
     "problems_by_source_and_category",
     "problems_dir",
@@ -118,5 +124,6 @@ __all__ = [
     "status_counts",
     "subcategory_counts",
     "update_problem",
+    "upsert_tag",
     "user_dir",
 ]

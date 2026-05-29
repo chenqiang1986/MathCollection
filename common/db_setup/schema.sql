@@ -68,6 +68,26 @@ ALTER TABLE category_edits ADD COLUMN to_subcategory TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_edits_from ON category_edits(from_category);
 CREATE INDEX IF NOT EXISTS idx_edits_from_sub ON category_edits(from_category, from_subcategory);
 
+-- problem_tags: mirror of each problem's `tags` list (source of truth lives
+-- in the problem JSON). Fully derived — rebuilt on every upsert/backfill —
+-- so it is safe to drop. Drives tag filtering and per-tag usage counts.
+CREATE TABLE IF NOT EXISTS problem_tags (
+    problem_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (problem_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_problem_tags_tag ON problem_tags(tag);
+
+-- tags: registry of customer-defined tags plus an optional longer comment.
+-- Like category_edits, this is authoritative — NOT derivable from problem
+-- JSON — so a backfill must never clear it. Tags applied to a problem are
+-- auto-registered here (empty comment) if not already present.
+CREATE TABLE IF NOT EXISTS tags (
+    name TEXT PRIMARY KEY,
+    comment TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 -- Bump the literal below whenever you add a new ALTER above. The next
 -- startup will detect DATA_VERSION < SCHEMA_VERSION and trigger a backfill.
-UPDATE schema_version SET schema_version = 7;
+UPDATE schema_version SET schema_version = 8;

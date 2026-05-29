@@ -8,8 +8,10 @@ Per-user, file-backed problem store with a derived SQLite index.
   used by callers. Always import from `common.storage`, not from
   submodules, so the internal layout stays free to move.
 - [vocab.py](vocab.py) — record types only (`Problem` dataclass,
-  `Bucket` NamedTuple, `DIFFICULTY_BUCKETS`). No runtime deps so any module
-  can import it without pulling in sqlite3 or filesystem code.
+  `Bucket` NamedTuple, `DIFFICULTY_BUCKETS`) plus the `normalize_tag` /
+  `normalize_tags` helpers (trim + lowercase + dedup, shared by storage and
+  the API). No runtime deps so any module can import it without pulling in
+  sqlite3 or filesystem code.
 - [paths.py](paths.py) — user-context binding (`set_current_user`,
   `reset_current_user`) and per-user path helpers
   (`user_dir`, `problems_dir`, `figures_dir`, `index_path`,
@@ -46,6 +48,12 @@ Per-user, file-backed problem store with a derived SQLite index.
   reviewer.
 - [stats.py](stats.py) — aggregations powering the stats page
   (`category_counts`, `difficulty_distribution`, `index_summary`).
+- [tags.py](tags.py) — customer-defined tag registry (`list_tags`,
+  `upsert_tag`). The `tags` table holds each tag's optional comment and is
+  **authoritative** (like `category_edits`); the `problem_tags` table mirrors
+  each problem's `tags` list and is **derived** (rebuilt by `_upsert_index_row`
+  → `_sync_problem_tags`, which also auto-registers any unseen tag). Tag
+  filtering (OR semantics) is in `_build_where` in [sql_index.py](sql_index.py).
 
 ## Data layout
 

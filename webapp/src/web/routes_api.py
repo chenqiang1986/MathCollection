@@ -3,6 +3,7 @@
 from flask import Blueprint, Response, jsonify, request
 
 from common import figures, storage
+from common.storage.vocab import normalize_tag, normalize_tags
 from webapp.src.lib import agent
 
 from webapp.src.web.auth import login_required, read_context, upload_allowed_required
@@ -22,6 +23,18 @@ def _parse_float(name: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def _parse_tags() -> list[str] | None:
+    """Tag filter from repeated `tags=` params (also tolerating comma-joined
+    values). Normalized + deduped; None when empty so it's treated as no filter."""
+    out: list[str] = []
+    for chunk in request.args.getlist("tags"):
+        for tag in chunk.split(","):
+            norm = normalize_tag(tag)
+            if norm and norm not in out:
+                out.append(norm)
+    return out or None
 
 
 def _parse_filters() -> dict:
@@ -48,6 +61,7 @@ def _parse_filters() -> dict:
         "subexam": subexam,
         "year": year,
         "has_figure": has_figure,
+        "tags": _parse_tags(),
     }
 
 
@@ -81,6 +95,31 @@ def stats_difficulty():
             "buckets": storage.difficulty_distribution(category, subcategory),
         }
     )
+
+
+@bp.route("/tags", methods=["GET"])
+@read_context
+def list_tags():
+    """All registered tags with their comment and usage count — powers the
+    autocomplete hints when tagging a problem or entering a tag filter."""
+    return jsonify({"tags": storage.list_tags()})
+
+
+@bp.route("/tags", methods=["POST"])
+@login_required
+@upload_allowed_required
+def create_tag():
+    """Create or update a tag definition, including its optional comment."""
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    comment = (payload.get("comment") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    try:
+        tag = storage.upsert_tag(name, comment)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"tag": tag})
 
 
 @bp.route("/summary", methods=["GET"])
@@ -187,6 +226,22 @@ def update_category(problem_id):
         from_subcategory=old_subcategory,
         to_subcategory=new_subcategory,
     )
+    return jsonify({"problem": updated.to_dict()})
+
+
+@bp.route("/problems/<problem_id>/tags", methods=["POST"])
+@login_required
+@upload_allowed_required
+def update_tags(problem_id):
+    problem = storage.get_problem(problem_id)
+    if not problem:
+        return jsonify({"error": "not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get("tags")
+    if not isinstance(raw, list):
+        return jsonify({"error": "tags must be a list"}), 400
+    tags = normalize_tags(raw)
+    updated = storage.update_problem(problem_id, tags=tags)
     return jsonify({"problem": updated.to_dict()})
 
 

@@ -40,6 +40,8 @@
   const subexamSel = document.getElementById("filter-subexam");
   const yearSel = document.getElementById("filter-year");
   const figureSel = document.getElementById("filter-figure");
+  const tagFilterInput = document.getElementById("tag-filter-input");
+  const tagFilterChips = document.getElementById("tag-filter-chips");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -63,6 +65,12 @@
   let subexamMap = {};
   // Flat set of all subcategories across categories (for datalist on edit).
   let knownSubcategories = [];
+  // Tag registry from /api/tags: ordered [{name, comment, count}] for the
+  // datalist, plus a name→comment map for fast tooltip lookups.
+  let knownTags = [];
+  let tagCommentMap = {};
+  // Tags currently chosen in the tag filter (OR semantics on the server).
+  let tagFilter = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -138,6 +146,7 @@
         `<span>${escapeHtml((p.created_at || "").slice(0, 19).replace("T", " "))}</span>` +
         `<span>${escapeHtml(p.id.slice(0, 8))}</span>` +
       `</div>` +
+      renderTagsBlock(p) +
       `<div class="rendered">${escapeHtml(p.problem_text)}</div>`;
 
     if (p.figure_image) {
@@ -171,6 +180,193 @@
     return div;
   }
 
+  function tagComment(name) {
+    return tagCommentMap[name] || "";
+  }
+
+  function renderTagsBlock(p) {
+    const tags = p.tags || [];
+    if (!tags.length && !CAN_UPLOAD) return "";
+    let html = `<div class="tags">`;
+    tags.forEach(t => {
+      const comment = tagComment(t);
+      const titleAttr = comment ? ` title="${escapeHtml(comment)}"` : "";
+      html += `<span class="tag-chip" data-tag="${escapeHtml(t)}"${titleAttr}>` +
+        `<span class="tag-name">${escapeHtml(t)}</span>` +
+        (CAN_UPLOAD ? `<button type="button" class="tag-remove" aria-label="Remove tag" title="Remove tag">×</button>` : "") +
+        `</span>`;
+    });
+    if (CAN_UPLOAD) {
+      html += `<button type="button" class="tag-add" title="Add a tag">+ tag</button>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  function currentProblemTags(problemEl) {
+    return Array.from(problemEl.querySelectorAll(".tags > .tag-chip[data-tag]"))
+      .map(el => el.dataset.tag);
+  }
+
+  function recordKnownTag(name, comment) {
+    if (!name) return;
+    const existing = knownTags.find(t => t.name === name);
+    if (existing) {
+      if (comment) existing.comment = comment;
+    } else {
+      knownTags.push({ name, comment: comment || "", count: 0 });
+    }
+    if (comment || !(name in tagCommentMap)) tagCommentMap[name] = comment || "";
+    refreshTagDatalist();
+  }
+
+  async function saveProblemTags(problemEl, tags, statusEl) {
+    const id = problemEl.dataset.id;
+    let data;
+    try {
+      const resp = await fetch(`${URL_PREFIX}/api/problems/${encodeURIComponent(id)}/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try { const err = await resp.json(); if (err && err.error) msg = err.error; } catch (_) {}
+        throw new Error(msg);
+      }
+      data = await resp.json();
+    } catch (e) {
+      if (statusEl) statusEl.textContent = `Failed: ${e.message}`;
+      return false;
+    }
+    if (data.problem) {
+      (data.problem.tags || []).forEach(t => recordKnownTag(t, tagComment(t)));
+      const fresh = renderProblem(data.problem);
+      problemEl.replaceWith(fresh);
+      renderMath(fresh);
+    }
+    return true;
+  }
+
+  function openTagAddForm(tagsEl) {
+    if (tagsEl.querySelector(".tag-add-form")) return;
+    const addBtn = tagsEl.querySelector(".tag-add");
+    if (addBtn) addBtn.hidden = true;
+    const form = document.createElement("span");
+    form.className = "tag-add-form";
+    form.innerHTML =
+      `<input type="text" class="tag-add-input" list="all-tags" placeholder="tag name" autocomplete="off">` +
+      `<input type="text" class="tag-add-comment" placeholder="describe this new tag (optional)" autocomplete="off" hidden>` +
+      `<button type="button" class="tag-add-save">Add</button>` +
+      `<button type="button" class="tag-add-cancel" aria-label="Cancel">×</button>` +
+      `<span class="tag-add-status cat-editor-status"></span>`;
+    tagsEl.appendChild(form);
+    const input = form.querySelector(".tag-add-input");
+    input.focus();
+  }
+
+  function closeTagAddForm(form) {
+    const tagsEl = form.closest(".tags");
+    form.remove();
+    const addBtn = tagsEl && tagsEl.querySelector(".tag-add");
+    if (addBtn) addBtn.hidden = false;
+  }
+
+  async function commitTagAddForm(form) {
+    const problemEl = form.closest(".problem");
+    if (!problemEl) return;
+    const input = form.querySelector(".tag-add-input");
+    const commentInput = form.querySelector(".tag-add-comment");
+    const statusEl = form.querySelector(".tag-add-status");
+    const name = (input.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!name) { closeTagAddForm(form); return; }
+    const current = currentProblemTags(problemEl);
+    if (current.indexOf(name) !== -1) { closeTagAddForm(form); return; }
+    const isNew = !knownTags.some(t => t.name === name);
+    const comment = isNew && commentInput ? (commentInput.value || "").trim() : "";
+
+    form.querySelectorAll("input,button").forEach(el => { el.disabled = true; });
+    statusEl.textContent = "Adding…";
+
+    // Register the tag (with its comment) before attaching it to the problem so
+    // a brand-new tag's description is persisted even if the comment is blank.
+    if (isNew) {
+      try {
+        const resp = await fetch(`${URL_PREFIX}/api/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, comment }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.tag) recordKnownTag(data.tag.name, data.tag.comment || "");
+        }
+      } catch (_) { /* non-fatal: the tag still gets auto-registered on save */ }
+    }
+    recordKnownTag(name, comment);
+    const ok = await saveProblemTags(problemEl, current.concat([name]), statusEl);
+    if (!ok) {
+      form.querySelectorAll("input,button").forEach(el => { el.disabled = false; });
+    }
+  }
+
+  function refreshTagDatalist() {
+    const dl = document.getElementById("all-tags");
+    if (!dl) return;
+    dl.innerHTML = "";
+    knownTags.forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t.name;
+      if (t.comment) opt.textContent = t.comment;
+      dl.appendChild(opt);
+    });
+  }
+
+  async function loadTags() {
+    try {
+      const resp = await fetch(`${URL_PREFIX}/api/tags`);
+      const data = await resp.json();
+      knownTags = data.tags || [];
+    } catch (e) {
+      knownTags = [];
+    }
+    tagCommentMap = {};
+    knownTags.forEach(t => { tagCommentMap[t.name] = t.comment || ""; });
+    refreshTagDatalist();
+  }
+
+  function renderTagFilterChips() {
+    if (!tagFilterChips) return;
+    tagFilterChips.innerHTML = "";
+    tagFilter.forEach(t => {
+      const chip = document.createElement("span");
+      chip.className = "filter-chip";
+      chip.dataset.tag = t;
+      const comment = tagComment(t);
+      if (comment) chip.title = comment;
+      chip.innerHTML = `<span>${escapeHtml(t)}</span>` +
+        `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
+      tagFilterChips.appendChild(chip);
+    });
+  }
+
+  function addTagFilter(raw) {
+    const name = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!name || tagFilter.indexOf(name) !== -1) return;
+    tagFilter.push(name);
+    renderTagFilterChips();
+    if (tagFilterInput) tagFilterInput.value = "";
+    onFilterChange();
+  }
+
+  function removeTagFilter(name) {
+    const i = tagFilter.indexOf(name);
+    if (i === -1) return;
+    tagFilter.splice(i, 1);
+    renderTagFilterChips();
+    onFilterChange();
+  }
+
   function rangeActive() {
     if (!minInput || !maxInput) return false;
     const lo = parseFloat(minInput.value);
@@ -186,6 +382,7 @@
     if (subexamSel && subexamSel.value) params.set("subexam", subexamSel.value);
     if (yearSel && yearSel.value) params.set("year", yearSel.value);
     if (figureSel && figureSel.value) params.set("has_figure", figureSel.value);
+    tagFilter.forEach(t => params.append("tags", t));
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
@@ -232,6 +429,7 @@
       (subexamSel && subexamSel.value) ||
       (yearSel && yearSel.value) ||
       (figureSel && figureSel.value) ||
+      tagFilter.length > 0 ||
       rangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
@@ -327,6 +525,51 @@
       }
       return;
     }
+    if (!CAN_UPLOAD) return;
+    const tagRemoveBtn = ev.target.closest(".tag-remove");
+    if (tagRemoveBtn) {
+      const problemEl = tagRemoveBtn.closest(".problem");
+      const chip = tagRemoveBtn.closest(".tag-chip");
+      if (problemEl && chip) {
+        const remaining = currentProblemTags(problemEl).filter(t => t !== chip.dataset.tag);
+        saveProblemTags(problemEl, remaining, null);
+      }
+      return;
+    }
+    const tagAddBtn = ev.target.closest(".tag-add");
+    if (tagAddBtn) {
+      openTagAddForm(tagAddBtn.closest(".tags"));
+      return;
+    }
+    const tagAddSave = ev.target.closest(".tag-add-save");
+    if (tagAddSave) {
+      commitTagAddForm(tagAddSave.closest(".tag-add-form"));
+      return;
+    }
+    const tagAddCancel = ev.target.closest(".tag-add-cancel");
+    if (tagAddCancel) {
+      closeTagAddForm(tagAddCancel.closest(".tag-add-form"));
+      return;
+    }
+  });
+
+  // Reveal the optional comment field only when the typed tag is brand new.
+  listEl.addEventListener("input", function (ev) {
+    const input = ev.target.closest(".tag-add-input");
+    if (!input) return;
+    const form = input.closest(".tag-add-form");
+    const commentInput = form && form.querySelector(".tag-add-comment");
+    if (!commentInput) return;
+    const name = (input.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const isNew = name && !knownTags.some(t => t.name === name);
+    commentInput.hidden = !isNew;
+  });
+
+  listEl.addEventListener("keydown", function (ev) {
+    const form = ev.target.closest(".tag-add-form");
+    if (!form) return;
+    if (ev.key === "Enter") { ev.preventDefault(); commitTagAddForm(form); }
+    else if (ev.key === "Escape") { ev.preventDefault(); closeTagAddForm(form); }
   });
 
   listEl.addEventListener("dblclick", function (ev) {
@@ -981,6 +1224,22 @@
   if (subexamSel) subexamSel.addEventListener("change", onFilterChange);
   if (yearSel) yearSel.addEventListener("change", onFilterChange);
   if (figureSel) figureSel.addEventListener("change", onFilterChange);
+  if (tagFilterInput) {
+    // `change` fires when picking a datalist suggestion; Enter commits a typed tag.
+    tagFilterInput.addEventListener("change", () => addTagFilter(tagFilterInput.value));
+    tagFilterInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); addTagFilter(tagFilterInput.value); }
+    });
+  }
+  if (tagFilterChips) {
+    tagFilterChips.addEventListener("click", (e) => {
+      const rm = e.target.closest(".filter-chip-remove");
+      if (rm) {
+        const chip = rm.closest(".filter-chip");
+        if (chip) removeTagFilter(chip.dataset.tag);
+      }
+    });
+  }
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
 
@@ -1068,7 +1327,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", async function () {
-    await loadSummary();
+    await Promise.all([loadSummary(), loadTags()]);
     await loadPage();
   });
 })();
