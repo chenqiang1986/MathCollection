@@ -15,7 +15,6 @@ from flask import (
     url_for,
 )
 from common import storage
-from common.db_setup.setup import init_user
 
 UPLOAD_WHITELIST = {"chenqiang19860101@gmail.com", "chenhenrybunny@gmail.com"}
 GUEST_USER = "guest"
@@ -56,15 +55,15 @@ def login_required(view):
 def read_context(view):
     """Bind storage to the signed-in user's bucket, or to the shared guest
     bucket for anonymous visitors. Use on read-only endpoints we want to
-    expose without login."""
+    expose without login. Assumes the schema is already applied — the
+    deploy-time `python -m common.db_setup` sync handles that, not request
+    handling."""
     @wraps(view)
     def wrapper(*args, **kwargs):
         user = current_user()
         email = storage_email((user or {}).get("email"))
         token = storage.set_current_user(email)
         try:
-            if email == GUEST_USER:
-                init_user()
             return view(*args, **kwargs)
         finally:
             storage.reset_current_user(token)
@@ -135,11 +134,9 @@ def auth_callback():
         "picture": userinfo.get("picture"),
     }
     session.permanent = True
-    token = storage.set_current_user(storage_email(email))
-    try:
-        init_user()
-    finally:
-        storage.reset_current_user(token)
+    # No DB sync on login — the schema and per-user backfill are applied at
+    # deploy time by `python -m common.db_setup`. New problems are written to
+    # Postgres directly as they're saved.
     next_url = session.pop("post_login_redirect", None) or url_for("pages.index")
     return redirect(next_url)
 

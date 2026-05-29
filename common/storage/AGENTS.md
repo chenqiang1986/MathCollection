@@ -36,8 +36,10 @@ and `PG_SCHEMA` (default `math_collection`).
   helper. Every query is scoped to the active user via `user_id`. Assumes
   the schema is already in place; DDL lives in
   [../db_setup/schema.sql](../db_setup/schema.sql) and is applied by
-  `common.db_setup.setup.ensure_schema()` (lazily, once per process);
-  `init_user()` runs it and then backfills the user's problems on login.
+  `common.db_setup.setup.ensure_schema()` (lazily, once per process).
+  `init_user()` runs it and then backfills one user's problems from JSON;
+  `sync_all_users()` fans that over every user and is the deploy-time entry
+  (`python -m common.db_setup`). Request handling never does a DB sync.
 - [queue.py](queue.py) — per-user raw-file queue used by the offline
   worker. Five-state lifecycle (`pending_image_scan` →
   `processing_image_scan` → `pending_problem_solve` →
@@ -89,7 +91,8 @@ non-whitelisted "guest" bucket also lives under `data/guest/` (user_id
 
 - **JSON is canonical, Postgres is derived — for the `problems` and
   `problem_tags` tables.** Deleting a user's `problems` rows is safe; the
-  next login re-runs `common.db_setup.setup.init_user`, which ensures the
+  next deploy-time `python -m common.db_setup` (or a direct
+  `common.db_setup.setup.init_user` under that user's context) ensures the
   schema and backfills from the JSON files. The `category_edits` and `tags`
   tables are the **exception**: they're authoritative and not rebuildable,
   so don't truncate them casually if a user has edited categories or named

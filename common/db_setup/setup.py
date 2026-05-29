@@ -13,7 +13,13 @@ import json
 from pathlib import Path
 
 from common.storage.db import SCHEMA, connect
-from common.storage.paths import current_user_id, problems_dir
+from common.storage.paths import (
+    DATA_DIR,
+    current_user_id,
+    problems_dir,
+    reset_current_user,
+    set_current_user,
+)
 from common.storage.sql_index import _upsert_index_row
 from common.storage.vocab import Problem
 
@@ -64,6 +70,30 @@ def init_user() -> None:
             """,
             (user, schema_v),
         )
+
+
+def sync_all_users() -> dict[str, int]:
+    """Apply the schema, then run `init_user()` for every user directory under
+    DATA_DIR — the deploy-time equivalent of the per-login backfill, fanned out
+    over all users. The per-user version gate means users already at the
+    current schema are a cheap no-op, so this is safe to run on every deploy.
+    Returns {user_id: problem-JSON count}."""
+    ensure_schema()
+    counts: dict[str, int] = {}
+    if not DATA_DIR.exists():
+        return counts
+    for child in sorted(DATA_DIR.iterdir()):
+        if not child.is_dir():
+            continue
+        user = child.name
+        token = set_current_user(user)
+        try:
+            init_user()
+            pdir = problems_dir()
+            counts[user] = len(list(pdir.glob("*.json"))) if pdir.exists() else 0
+        finally:
+            reset_current_user(token)
+    return counts
 
 
 def _split_statements(sql: str):

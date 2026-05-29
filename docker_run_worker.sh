@@ -21,13 +21,21 @@ if [[ "$REBUILD" -eq 1 ]]; then
     echo "Built $IMAGE"
 fi
 
+# Container env lives in .env.docker (DATABASE_URL points at
+# host.docker.internal, the Mac host, rather than the container's localhost).
+ENV_FILE="$REPO_DIR/.env.docker"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "Missing $ENV_FILE (copy .env.docker.example and fill it in)" >&2
+    exit 1
+fi
+
 docker run -d \
     --name "$CONTAINER" \
-    --env-file "$REPO_DIR/.env" \
+    --env-file "$ENV_FILE" \
+    --add-host=host.docker.internal:host-gateway \
     -v "$REPO_DIR/data:/app/data" \
     -v "$HOME/.claude:/root/.claude" \
     -v "$HOME/.claude.json:/root/.claude.json" \
-    -e CLAUDE_CODE_USE_OAUTH=1 \
     --restart unless-stopped \
     "$IMAGE"
 

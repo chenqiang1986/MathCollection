@@ -22,14 +22,35 @@ if [[ "$REBUILD" -eq 1 ]]; then
     echo "Built $IMAGE"
 fi
 
+# Container env lives in .env.docker (DATABASE_URL points at
+# host.docker.internal, the Mac host, rather than the container's localhost).
+ENV_FILE="$REPO_DIR/.env.docker"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "Missing $ENV_FILE (copy .env.docker.example and fill it in)" >&2
+    exit 1
+fi
+
+# Apply the Postgres schema and sync every user's problems from their JSON
+# files before the server starts, so request handling never triggers a DB
+# sync. Version-gated, so this is cheap when nothing changed. `set -e` aborts
+# the launch if the DB is unreachable rather than serving against a missing
+# schema.
+echo "Applying DB schema + syncing data..."
+docker run --rm \
+    --env-file "$ENV_FILE" \
+    --add-host=host.docker.internal:host-gateway \
+    -v "$REPO_DIR/data:/app/data" \
+    "$IMAGE" \
+    python -m common.db_setup
+
 docker run -d \
     --name "$CONTAINER" \
-    --env-file "$REPO_DIR/.env" \
+    --env-file "$ENV_FILE" \
+    --add-host=host.docker.internal:host-gateway \
     -p "${HOST_PORT}:${HOST_PORT}" \
     -v "$REPO_DIR/data:/app/data" \
     -v "$HOME/.claude:/root/.claude" \
     -v "$HOME/.claude.json:/root/.claude.json" \
-    -e CLAUDE_CODE_USE_OAUTH=1 \
     --restart unless-stopped \
     "$IMAGE"
 

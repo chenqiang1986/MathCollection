@@ -40,8 +40,11 @@ depends on the other.
   [common/storage/AGENTS.md](common/storage/AGENTS.md).
 - [common/db_setup/](common/db_setup/) — `schema.sql` (single Postgres
   schema for all tables) + initialization. `ensure_schema()` applies the
-  DDL once per process; `init_user()` backfills the current user's
-  problems from JSON when the schema version advances.
+  DDL once per process; `init_user()` backfills one user's problems from
+  JSON when the schema version advances; `sync_all_users()` fans that over
+  every user. `python -m common.db_setup` runs the sync and is the
+  deploy-time entry (called from [docker_run.sh](docker_run.sh)) — request
+  handling never does a DB sync.
 - [common/agent_util.py](common/agent_util.py) — `MODEL`, `log_message`,
   `PROMPTS_DIR`, `MAX_BUFFER_SIZE`. Imported by both `worker.agent` and
   the webapp's `lib.agent.refine`.
@@ -99,6 +102,13 @@ pip install -r webapp/requirements.txt
 cp .env.example .env    # ANTHROPIC_API_KEY, FLASK_SECRET_KEY,
                         # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
                         # DATABASE_URL (Postgres), PG_SCHEMA
+# For Docker, also: cp .env.docker.example .env.docker and set DATABASE_URL to
+# host.docker.internal (the Mac host). docker_run.sh / docker_run_worker.sh
+# use .env.docker; local runs below use .env (localhost).
+
+# 0. Apply the Postgres schema + sync all users' problems from JSON. Run once
+#    per deploy (docker_run.sh does this automatically before the server).
+PYTHONPATH=. python -m common.db_setup
 
 # 1. Webapp (uploads + browsing)
 PYTHONPATH=. python -m webapp.src.app                     # http://0.0.0.0:5001

@@ -34,12 +34,13 @@ HTTP-facing lives here.
 
 - **Every handler that touches storage is decorated with `@login_required`.**
   That decorator binds `storage.set_current_user(storage_email(email))`
-  for the duration of the request. The Postgres schema is created on first
-  successful login by [`/auth/callback`](auth.py), which calls
-  [`common.db_setup.setup.init_user`](../../../common/db_setup/setup.py) under the user context
-  (it ensures the schema and backfills the user's problems from JSON).
-  Handlers themselves never create tables. Don't call storage directly
-  without the decorator.
+  for the duration of the request. The web tier does **no** DB setup or sync
+  at request time — neither login nor read handlers call `init_user`. The
+  Postgres schema and per-user backfill are applied at deploy time by
+  [`python -m common.db_setup`](../../../common/db_setup/__main__.py) (run
+  from [docker_run.sh](../../../docker_run.sh)); handlers assume the schema
+  already exists. New problems are written to Postgres directly as they're
+  saved. Don't call storage directly without the decorator.
 - **`upload_allowed_required` goes AFTER `login_required`.** Login first,
   then check the whitelist. Apply it on `/upload` and any write endpoint.
 - **Filters come in as query params**, parsed by `_parse_filters()` in
