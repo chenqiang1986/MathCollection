@@ -40,6 +40,16 @@ For each problem, provide these fields:
   Apply the same `subexam` to every problem under that section header.
   Use an empty string `""` for competitions that have no sub-events
   (e.g. AMC10, AMC12, AIME) or when the source doesn't indicate one.
+
+  CONSISTENCY ACROSS RUNS: when the source has a named round, FIRST call
+  `mcp__problem_store__list_subexams` with the `source_exam` you
+  identified to see the labels prior runs already used (with counts). If
+  one of them denotes the same round, reuse it EXACTLY — same spelling
+  and case, even if you would have spelled it differently — so the same
+  round always gets the same label. Only invent a new label when none
+  fits; if several existing labels mean the same round, pick the
+  highest-count one. Skip this call only when `subexam` is `""`. Call it
+  once per source (the answer covers all problems in the file).
 - `year`: the 4-digit competition year as a string (e.g. `2024`).
   `Unknown` if not present in the source.
 - `source_page`: the 1-indexed page number of the source PDF where this

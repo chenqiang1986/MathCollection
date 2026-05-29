@@ -71,7 +71,11 @@ async def _scan_image_async(
         model=MODEL,
         system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
         mcp_servers={"problem_store": server},
-        allowed_tools=["Read", "mcp__problem_store__save_parsed_problem"],
+        allowed_tools=[
+            "Read",
+            "mcp__problem_store__list_subexams",
+            "mcp__problem_store__save_parsed_problem",
+        ],
         max_turns=ORCHESTRATOR_MAX_TURNS,
         max_buffer_size=MAX_BUFFER_SIZE,
     )

@@ -2,8 +2,11 @@
 
 Two modes:
 
-- `mode="parsed"` (stage 1, image scan): exposes `save_parsed_problem`.
-  The orchestrator calls it once per problem extracted from the source.
+- `mode="parsed"` (stage 1, image scan): exposes `save_parsed_problem`
+  plus `list_subexams` (a read-only lookup of subexam labels prior runs
+  used under a given exam, so the orchestrator reuses an existing label
+  instead of inventing a new spelling — see `worker/prompts/orchestrator.md`).
+  The orchestrator calls `save_parsed_problem` once per problem extracted.
   Each call crops the figure (if any) and persists a partial problem JSON
   with placeholder category `unclassified` and empty solution. Stage 2
   finds these by `(source_image, category='unclassified')` and fills them
@@ -148,10 +151,43 @@ def _build_parsed_server(
             ]
         }
 
+    @tool(
+        "list_subexams",
+        (
+            "List the `subexam` labels already used under a given "
+            "`source_exam` by prior runs, with a usage count for each. "
+            "Call this BEFORE `save_parsed_problem` whenever the document "
+            "has a sub-event/round, then reuse a returned label EXACTLY "
+            "(verbatim — same spelling and case) when it denotes the same "
+            "round. This keeps the value consistent across runs. Only "
+            "invent a new label when none of the returned ones fit; if "
+            "several returned labels mean the same round, prefer the one "
+            "with the highest count."
+        ),
+        {"source_exam": str},
+    )
+    async def list_subexams(args: dict) -> dict:
+        exam = storage.canonicalize_source_exam(args.get("source_exam"))
+        rows = storage.distinct_subexams(exam)
+        if not rows:
+            text = (
+                f"No subexam labels recorded yet for {exam!r}. If this "
+                "document has a named round, create a concise lowercase "
+                "label; future runs will reuse it."
+            )
+        else:
+            listed = ", ".join(f"{sub!r} ({n})" for sub, n in rows)
+            text = (
+                f"Existing subexam labels for {exam!r} (label (count), "
+                f"most-used first): {listed}. Reuse one verbatim if it "
+                "denotes this document's round; otherwise create a new one."
+            )
+        return {"content": [{"type": "text", "text": text}]}
+
     return create_sdk_mcp_server(
         name="problem_store",
         version="1.0.0",
-        tools=[save_parsed_problem],
+        tools=[save_parsed_problem, list_subexams],
     )
 
 

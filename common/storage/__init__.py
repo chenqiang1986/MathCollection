@@ -45,6 +45,7 @@ from common.storage.queue import (
     status_counts,
 )
 from common.storage.sql_index import (
+    distinct_subexams,
     existing_seq_nos,
     problems_by_source_and_category,
     query_index,
@@ -90,6 +91,7 @@ __all__ = [
     "current_user_id",
     "delete_problem",
     "difficulty_distribution",
+    "distinct_subexams",
     "enqueue_raw",
     "existing_seq_nos",
     "figure_path",

@@ -96,6 +96,25 @@ def problems_by_source_and_category(
     return [r["id"] for r in rows]
 
 
+def distinct_subexams(source_exam: str) -> list[tuple[str, int]]:
+    """Return the named subexams already used under `source_exam` for the
+    active user, as `(subexam, problem_count)` ordered most-used first.
+
+    Drives the orchestrator's `list_subexams` tool: by showing what prior
+    runs already wrote (and how often), a new run can reuse an existing
+    label verbatim instead of inventing a fresh spelling — keeping the
+    `subexam` value consistent across runs. The empty string (no
+    sub-event) is excluded; it is not a reusable label."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT subexam, COUNT(*) AS n FROM problems "
+            "WHERE user_id = %s AND source_exam = %s AND subexam <> '' "
+            "GROUP BY subexam ORDER BY n DESC, subexam ASC",
+            (current_user_id(), source_exam),
+        ).fetchall()
+    return [(r["subexam"], int(r["n"])) for r in rows]
+
+
 def existing_seq_nos(source_image: str) -> set[int]:
     """Return the set of seq_no values already saved for this source_image.
     Used by the orchestrator to skip re-solving problems that were already
