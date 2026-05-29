@@ -7,23 +7,28 @@ counts are joined in from `problem_tags`. See [schema.sql](../db_setup/schema.sq
 
 from datetime import datetime, timezone
 
-from common.storage.sql_index import _connect
+from common.storage.db import connect
+from common.storage.paths import current_user_id
 from common.storage.vocab import normalize_tag
 
 
 def list_tags() -> list[dict]:
     """Every registered tag with its comment and how many problems use it,
     most-used first. Powers the autocomplete hints on the UI."""
-    with _connect() as conn:
+    user = current_user_id()
+    with connect() as conn:
         rows = conn.execute(
             """
             SELECT t.name, t.comment, COALESCE(c.n, 0) AS n
             FROM tags t
             LEFT JOIN (
-                SELECT tag, COUNT(*) AS n FROM problem_tags GROUP BY tag
+                SELECT tag, COUNT(*) AS n FROM problem_tags
+                WHERE user_id = %s GROUP BY tag
             ) c ON c.tag = t.name
+            WHERE t.user_id = %s
             ORDER BY n DESC, t.name
-            """
+            """,
+            (user, user),
         ).fetchall()
     return [
         {"name": r["name"], "comment": r["comment"], "count": r["n"]}
@@ -39,20 +44,24 @@ def upsert_tag(name: str, comment: str = "") -> dict:
         raise ValueError("tag name is required")
     comment = (comment or "").strip()
     now = datetime.now(timezone.utc).isoformat()
-    with _connect() as conn:
+    user = current_user_id()
+    with connect() as conn:
         conn.execute(
             """
-            INSERT INTO tags (name, comment, created_at) VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
+            INSERT INTO tags (user_id, name, comment, created_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT(user_id, name) DO UPDATE SET
                 comment = CASE
                     WHEN excluded.comment != '' THEN excluded.comment
                     ELSE tags.comment
                 END
             """,
-            (name, comment, now),
+            (user, name, comment, now),
         )
         row = conn.execute(
-            "SELECT name, comment, created_at FROM tags WHERE name = ?", (name,)
+            "SELECT name, comment, created_at FROM tags "
+            "WHERE user_id = %s AND name = %s",
+            (user, name),
         ).fetchone()
     return {
         "name": row["name"],

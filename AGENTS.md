@@ -7,8 +7,8 @@ Guidance for AI coding agents working in this repo.
 MathCollection is split into two pieces:
 
 1. A small Flask webapp that accepts image / PDF uploads and saves them
-   under `data/<user>/raw/`. It also enqueues each file in a per-user
-   SQLite queue and shows the saved problems.
+   under `data/<user>/raw/`. It also enqueues each file in a Postgres
+   queue (keyed by `user_id`) and shows the saved problems.
 2. An offline Python worker ([worker/](worker/)) that scans the queues
    across all users, runs the two-tier Claude agent on each pending file
    (via the `claude-agent-sdk`), and saves the extracted problems. The
@@ -34,11 +34,14 @@ depends on the other.
 **Shared library:**
 
 - [common/storage/](common/storage/) — JSON-on-disk problem store,
-  SQLite metadata index, raw-file queue, per-user paths, stats
-  aggregations. See [common/storage/AGENTS.md](common/storage/AGENTS.md).
-- [common/db_setup/](common/db_setup/) — schema files + per-user DB
-  initialization. `init_user()` applies both `schema.sql`
-  (problems_index.db) and `queue_schema.sql` (raw_queue.db).
+  Postgres metadata index, raw-file queue, per-user paths, stats
+  aggregations. The Postgres connection pool lives in
+  [common/storage/db.py](common/storage/db.py). See
+  [common/storage/AGENTS.md](common/storage/AGENTS.md).
+- [common/db_setup/](common/db_setup/) — `schema.sql` (single Postgres
+  schema for all tables) + initialization. `ensure_schema()` applies the
+  DDL once per process; `init_user()` backfills the current user's
+  problems from JSON when the schema version advances.
 - [common/agent_util.py](common/agent_util.py) — `MODEL`, `log_message`,
   `PROMPTS_DIR`, `MAX_BUFFER_SIZE`. Imported by both `worker.agent` and
   the webapp's `lib.agent.refine`.
@@ -73,10 +76,13 @@ depends on the other.
 - `data/<user>/problems/<uuid>.json` — canonical, append-only.
 - `data/<user>/figures/<uuid>.png` — cropped figures referenced by problems.
 - `data/<user>/raw/<sha256>.<ext>` — raw uploaded images / PDFs.
-- `data/<user>/problems_index.db` — derived SQLite index (rebuilt from
-  JSON on next startup if missing).
-- `data/<user>/raw_queue.db` — authoritative queue of raw files awaiting
-  worker processing.
+
+The problem index, raw-file queue, tags, and category-edit log now live in
+a single Postgres database (schema `math_collection`), with every row
+carrying a `user_id` column rather than a per-user database file. Connect
+via `DATABASE_URL` (see [.env.example](.env.example)). The `problems` and
+`problem_tags` tables are derived from the JSON and rebuild on backfill;
+`tags`, `category_edits`, and `raw_files` are authoritative.
 
 - [webapp/requirements.txt](webapp/requirements.txt), [.env.example](.env.example).
 
@@ -91,7 +97,8 @@ resolve.
 source .venv/bin/activate
 pip install -r webapp/requirements.txt
 cp .env.example .env    # ANTHROPIC_API_KEY, FLASK_SECRET_KEY,
-                        # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+                        # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+                        # DATABASE_URL (Postgres), PG_SCHEMA
 
 # 1. Webapp (uploads + browsing)
 PYTHONPATH=. python -m webapp.src.app                     # http://0.0.0.0:5001
@@ -145,9 +152,9 @@ There are no tests, linters, or CI configured.
   [webapp/src/web/uploads.py](webapp/src/web/uploads.py) and [webapp/src/app.py](webapp/src/app.py).
   `/upload` only saves bytes + enqueues; the worker does the agent work.
 - **Storage is mostly append-only**: problem JSON files are canonical; the
-  SQLite `problems` table is purely derived — deleting it is safe and it
-  rebuilds on next startup. The one exception is the `category_edits`
-  table in the same DB, which is authoritative (it logs manual category
+  Postgres `problems` table is purely derived — deleting a user's rows is
+  safe and they rebuild from JSON on next `init_user()`. The exception is the
+  `category_edits` table, which is authoritative (it logs manual category
   corrections and feeds the recategorization agent step); don't drop it.
   Delete and `POST /api/problems/<id>/category` (manual category edit) are
   the only write endpoints beyond upload; don't add other UI edit flows
@@ -170,15 +177,17 @@ There are no tests, linters, or CI configured.
   `asyncio.run`, so they can't be invoked from inside an existing event
   loop. The worker is fully synchronous; don't wrap it in one.
 - Uploads succeed silently from the user's perspective until the worker
-  catches up. If the worker isn't running, new files pile up in
-  `raw_queue.db` as `pending_image_scan` rows and no problems appear. A
+  catches up. If the worker isn't running, new files pile up in the
+  `raw_files` table as `pending_image_scan` rows and no problems appear. A
   worker can also get stuck between stages: rows can sit in
   `pending_problem_solve` if the solver is failing. Check
   `pending_count()` (covers both pending states), `storage.status_counts()`,
-  or `select status, count(*) from raw_files group by status` if uploads
-  "stop working".
-- `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` must be
-  in the environment (loaded via `python-dotenv`) before the app starts.
+  or `select status, count(*) from raw_files where user_id = '<user>' group
+  by status` if uploads "stop working".
+- `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
+  `DATABASE_URL` must be in the environment (loaded via `python-dotenv`)
+  before the app starts. Postgres must be reachable at `DATABASE_URL`; the
+  schema is created lazily by `ensure_schema()` on first use.
 - All storage helpers require an active user context — calling them without
   `storage.set_current_user(...)` raises `RuntimeError`. The `login_required`
   decorator in [webapp/src/web/auth.py](webapp/src/web/auth.py) handles this for HTTP

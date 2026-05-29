@@ -1,32 +1,27 @@
-"""SQLite metadata index over the per-user problem JSON files.
+"""Postgres metadata index over the per-user problem JSON files.
 
-Schema lives in [src/db_setup/schema.sql](../../db_setup/schema.sql) and is
-applied by `python -m db_setup.main <email>`. This module assumes the DB
-already exists.
+Schema lives in [../db_setup/schema.sql](../db_setup/schema.sql) and is applied
+by `common.db_setup.setup.ensure_schema`. This module assumes the schema is
+already in place. Every query is scoped to the active user via the `user_id`
+column (see `common.storage.paths.current_user_id`).
 """
 
-import sqlite3
-
-from common.storage.paths import index_path, user_dir
+from common.storage.db import connect
+from common.storage.paths import current_user_id
 from common.storage.vocab import Problem, normalize_tags
 
 
-def _connect() -> sqlite3.Connection:
-    user_dir().mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(index_path())
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
+def _upsert_index_row(conn, problem: Problem) -> None:
+    user = current_user_id()
     conn.execute(
         """
         INSERT INTO problems
-            (id, filename, category, subcategory, solve_time_seconds,
+            (user_id, id, filename, category, subcategory, solve_time_seconds,
              solve_time_estimated, created_at, source_exam, subexam, year,
              has_figure, source_image, seq_no)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(id) DO UPDATE SET
+            user_id = excluded.user_id,
             filename = excluded.filename,
             category = excluded.category,
             subcategory = excluded.subcategory,
@@ -41,6 +36,7 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
             seq_no = excluded.seq_no
         """,
         (
+            user,
             problem.id,
             f"{problem.id}.json",
             (problem.category or "").lower(),
@@ -59,22 +55,26 @@ def _upsert_index_row(conn: sqlite3.Connection, problem: Problem) -> None:
     _sync_problem_tags(conn, problem)
 
 
-def _sync_problem_tags(conn: sqlite3.Connection, problem: Problem) -> None:
+def _sync_problem_tags(conn, problem: Problem) -> None:
     """Mirror `problem.tags` into the derived problem_tags table and ensure
     each tag exists in the authoritative `tags` registry (empty comment if
     new — an explicit POST /api/tags can add the comment later)."""
-    conn.execute("DELETE FROM problem_tags WHERE problem_id = ?", (problem.id,))
+    user = current_user_id()
+    conn.execute("DELETE FROM problem_tags WHERE problem_id = %s", (problem.id,))
     tags = normalize_tags(problem.tags)
     if not tags:
         return
-    conn.executemany(
-        "INSERT OR IGNORE INTO problem_tags (problem_id, tag) VALUES (?, ?)",
-        [(problem.id, t) for t in tags],
-    )
-    conn.executemany(
-        "INSERT OR IGNORE INTO tags (name, comment, created_at) VALUES (?, '', ?)",
-        [(t, problem.created_at) for t in tags],
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO problem_tags (user_id, problem_id, tag) VALUES (%s, %s, %s) "
+            "ON CONFLICT (problem_id, tag) DO NOTHING",
+            [(user, problem.id, t) for t in tags],
+        )
+        cur.executemany(
+            "INSERT INTO tags (user_id, name, comment, created_at) "
+            "VALUES (%s, %s, '', %s) ON CONFLICT (user_id, name) DO NOTHING",
+            [(user, t, problem.created_at) for t in tags],
+        )
 
 
 def problems_by_source_and_category(
@@ -84,14 +84,14 @@ def problems_by_source_and_category(
     by the solver stage to find partials (category='unclassified') saved
     by the scan stage. Ordered by seq_no so retries see them in source
     order."""
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
             """
             SELECT id FROM problems
-            WHERE source_image = ? AND category = ?
+            WHERE user_id = %s AND source_image = %s AND category = %s
             ORDER BY COALESCE(seq_no, 0) ASC, created_at ASC
             """,
-            (source_image, category.lower()),
+            (current_user_id(), source_image, category.lower()),
         ).fetchall()
     return [r["id"] for r in rows]
 
@@ -100,11 +100,11 @@ def existing_seq_nos(source_image: str) -> set[int]:
     """Return the set of seq_no values already saved for this source_image.
     Used by the orchestrator to skip re-solving problems that were already
     extracted from the same source file."""
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
             "SELECT seq_no FROM problems "
-            "WHERE source_image = ? AND seq_no IS NOT NULL",
-            (source_image,),
+            "WHERE user_id = %s AND source_image = %s AND seq_no IS NOT NULL",
+            (current_user_id(), source_image),
         ).fetchall()
     return {int(r["seq_no"]) for r in rows}
 
@@ -121,36 +121,38 @@ def _build_where(
     has_figure: bool | None = None,
     tags: list[str] | None = None,
 ) -> tuple[str, list]:
-    """Build a WHERE clause. If min_time/max_time covers the full slider range,
-    do not exclude rows with NULL solve_time_seconds. Multiple tags match with
-    OR semantics (a problem qualifies if it carries any of them)."""
-    where: list[str] = []
-    params: list = []
+    """Build a WHERE clause (always scoped to the active user). If
+    min_time/max_time covers the full slider range, do not exclude rows with
+    NULL solve_time_seconds. Multiple tags match with OR semantics (a problem
+    qualifies if it carries any of them)."""
+    where: list[str] = ["user_id = %s"]
+    params: list = [current_user_id()]
     if category:
-        where.append("category = ?")
+        where.append("category = %s")
         params.append(category.lower())
     if subcategory:
-        where.append("subcategory = ?")
+        where.append("subcategory = %s")
         params.append(subcategory.lower())
     if source_exam:
-        where.append("source_exam = ?")
+        where.append("source_exam = %s")
         params.append(source_exam)
     if subexam:
-        where.append("subexam = ?")
+        where.append("subexam = %s")
         params.append(subexam)
     if year:
-        where.append("year = ?")
+        where.append("year = %s")
         params.append(year)
     if has_figure is True:
         where.append("has_figure = 1")
     elif has_figure is False:
         where.append("has_figure = 0")
     if tags:
-        placeholders = ", ".join("?" for _ in tags)
+        placeholders = ", ".join("%s" for _ in tags)
         where.append(
             "id IN (SELECT problem_id FROM problem_tags "
-            f"WHERE tag IN ({placeholders}))"
+            f"WHERE user_id = %s AND tag IN ({placeholders}))"
         )
+        params.append(current_user_id())
         params.extend(tags)
     range_active = False
     if min_time is not None and (full_range_max is None or min_time > 0):
@@ -159,13 +161,11 @@ def _build_where(
         range_active = True
     if range_active:
         if min_time is not None:
-            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds >= ?")
+            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds >= %s")
             params.append(min_time)
         if max_time is not None:
-            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds <= ?")
+            where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds <= %s")
             params.append(max_time)
-    if not where:
-        return "", params
     return " WHERE " + " AND ".join(where), params
 
 
@@ -190,13 +190,13 @@ def query_index(
     page = max(1, int(page))
     page_size = max(1, int(page_size))
     offset = (page - 1) * page_size
-    with _connect() as conn:
+    with connect() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM problems{where_clause}", params
-        ).fetchone()[0]
+            f"SELECT COUNT(*) AS total FROM problems{where_clause}", params
+        ).fetchone()["total"]
         rows = conn.execute(
             f"SELECT id FROM problems{where_clause} "
-            f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            f"ORDER BY created_at DESC LIMIT %s OFFSET %s",
             (*params, page_size, offset),
         ).fetchall()
     ids = [r["id"] for r in rows]
@@ -220,9 +220,9 @@ def sample_index(
         category, subcategory, min_time, max_time, full_range_max,
         source_exam, subexam, year, has_figure, tags,
     )
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
-            f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT ?",
+            f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT %s",
             (*params, max(1, int(n))),
         ).fetchall()
     return [r["id"] for r in rows]

@@ -6,12 +6,13 @@ safe to rebuild). Keep enough denormalized context (problem_text, solution
 at edit time) so each row stands on its own as a training example, even if
 the underlying problem is later edited again or deleted.
 
-Schema lives in [src/db_setup/schema.sql](../../db_setup/schema.sql).
+Schema lives in [db_setup/schema.sql](../../db_setup/schema.sql).
 """
 
 from datetime import datetime, timezone
 
-from common.storage.sql_index import _connect
+from common.storage.db import connect
+from common.storage.paths import current_user_id
 
 
 def record_category_edit(
@@ -23,15 +24,16 @@ def record_category_edit(
     from_subcategory: str = "",
     to_subcategory: str = "",
 ) -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             INSERT INTO category_edits
-                (problem_id, problem_text, solution, from_category,
+                (user_id, problem_id, problem_text, solution, from_category,
                  to_category, from_subcategory, to_subcategory, edited_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
+                current_user_id(),
                 problem_id,
                 problem_text,
                 solution or "",
@@ -54,14 +56,14 @@ def category_edit_examples(
     sql = (
         "SELECT problem_text, solution, from_category, to_category, "
         "from_subcategory, to_subcategory, edited_at "
-        "FROM category_edits WHERE from_category = ?"
+        "FROM category_edits WHERE user_id = %s AND from_category = %s"
     )
-    params: list = [(from_category or "").lower()]
+    params: list = [current_user_id(), (from_category or "").lower()]
     if from_subcategory:
-        sql += " AND from_subcategory = ?"
+        sql += " AND from_subcategory = %s"
         params.append(from_subcategory.lower())
-    sql += " ORDER BY edited_at DESC LIMIT ?"
+    sql += " ORDER BY edited_at DESC LIMIT %s"
     params.append(max(1, int(limit)))
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]

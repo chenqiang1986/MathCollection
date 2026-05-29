@@ -2,27 +2,29 @@
 
 import math
 
-from common.storage.sql_index import _connect
+from common.storage.db import connect
+from common.storage.paths import current_user_id
 from common.storage.vocab import DIFFICULTY_BUCKETS
 
 
 def category_counts() -> list[dict]:
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
             "SELECT category, COUNT(*) AS n FROM problems "
-            "GROUP BY category ORDER BY n DESC, category"
+            "WHERE user_id = %s GROUP BY category ORDER BY n DESC, category",
+            (current_user_id(),),
         ).fetchall()
     return [{"category": r["category"], "count": r["n"]} for r in rows]
 
 
 def subcategory_counts(category: str | None = None) -> list[dict]:
     """Counts grouped by subcategory, optionally filtered to one category."""
-    where = ""
-    params: list = []
+    where = " WHERE user_id = %s"
+    params: list = [current_user_id()]
     if category:
-        where = " WHERE category = ?"
+        where += " AND category = %s"
         params.append(category.lower())
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
             "SELECT category, subcategory, COUNT(*) AS n FROM problems"
             f"{where} GROUP BY category, subcategory "
@@ -42,16 +44,16 @@ def subcategory_counts(category: str | None = None) -> list[dict]:
 def difficulty_distribution(
     category: str | None = None, subcategory: str | None = None
 ) -> list[dict]:
-    where: list[str] = []
-    params: list = []
+    where: list[str] = ["user_id = %s"]
+    params: list = [current_user_id()]
     if category:
-        where.append("category = ?")
+        where.append("category = %s")
         params.append(category.lower())
     if subcategory:
-        where.append("subcategory = ?")
+        where.append("subcategory = %s")
         params.append(subcategory.lower())
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
-    with _connect() as conn:
+    clause = " WHERE " + " AND ".join(where)
+    with connect() as conn:
         rows = conn.execute(
             f"SELECT solve_time_seconds FROM problems{clause}", params
         ).fetchall()
@@ -72,21 +74,29 @@ def difficulty_distribution(
 
 
 def index_summary() -> dict:
-    with _connect() as conn:
+    user = current_user_id()
+    with connect() as conn:
         rows = conn.execute(
             "SELECT DISTINCT category, subcategory FROM problems "
-            "ORDER BY category, subcategory"
+            "WHERE user_id = %s ORDER BY category, subcategory",
+            (user,),
         ).fetchall()
         max_time = conn.execute(
-            "SELECT MAX(solve_time_seconds) FROM problems"
-        ).fetchone()[0]
-        total = conn.execute("SELECT COUNT(*) FROM problems").fetchone()[0]
+            "SELECT MAX(solve_time_seconds) AS m FROM problems WHERE user_id = %s",
+            (user,),
+        ).fetchone()["m"]
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM problems WHERE user_id = %s", (user,)
+        ).fetchone()["n"]
         exam_rows = conn.execute(
             "SELECT DISTINCT source_exam, subexam FROM problems "
-            "ORDER BY source_exam, subexam"
+            "WHERE user_id = %s ORDER BY source_exam, subexam",
+            (user,),
         ).fetchall()
         year_rows = conn.execute(
-            "SELECT DISTINCT year FROM problems ORDER BY year DESC"
+            "SELECT DISTINCT year FROM problems WHERE user_id = %s "
+            "ORDER BY year DESC",
+            (user,),
         ).fetchall()
     # Group subcategories under their parent category, preserving order.
     cat_map: dict[str, list[str]] = {}

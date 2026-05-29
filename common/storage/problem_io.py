@@ -4,8 +4,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from common.storage.paths import figures_dir, problems_dir
-from common.storage.sql_index import _connect, _upsert_index_row
+from common.storage.db import connect
+from common.storage.paths import current_user_id, figures_dir, problems_dir
+from common.storage.sql_index import _upsert_index_row
 from common.storage.vocab import Problem, normalize_tags
 
 
@@ -55,7 +56,7 @@ def save_problem(
         tags=normalize_tags(tags),
     )
     _write_problem_file(problem)
-    with _connect() as conn:
+    with connect() as conn:
         _upsert_index_row(conn, problem)
     return problem
 
@@ -66,7 +67,7 @@ def update_problem(problem_id: str, **fields) -> Problem:
     data.update(fields)
     problem = Problem.from_dict(data)
     _write_problem_file(problem)
-    with _connect() as conn:
+    with connect() as conn:
         _upsert_index_row(conn, problem)
     return problem
 
@@ -85,10 +86,17 @@ def delete_problem(problem_id: str) -> bool:
         fpath = figures_dir() / figure
         if fpath.exists():
             fpath.unlink()
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
+    user = current_user_id()
+    with connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM problems WHERE user_id = %s AND id = %s",
+            (user, problem_id),
+        )
         deleted_rows = cur.rowcount
-        conn.execute("DELETE FROM problem_tags WHERE problem_id = ?", (problem_id,))
+        conn.execute(
+            "DELETE FROM problem_tags WHERE user_id = %s AND problem_id = %s",
+            (user, problem_id),
+        )
     return problem is not None or deleted_rows > 0
 
 

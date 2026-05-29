@@ -1,32 +1,43 @@
 # Storage package
 
-Per-user, file-backed problem store with a derived SQLite index.
+File-backed problem store (JSON on disk) with a derived index in Postgres.
+A single Postgres database backs every user; rows are partitioned by a
+`user_id` column (the sanitized-email slug from `paths.current_user_id`),
+not by a per-user database. Connection settings come from `DATABASE_URL`
+and `PG_SCHEMA` (default `math_collection`).
 
 ## Files
 
 - [__init__.py](__init__.py) — public surface; re-exports every helper
   used by callers. Always import from `common.storage`, not from
   submodules, so the internal layout stays free to move.
+- [db.py](db.py) — Postgres connection pool. `connect()` hands out a
+  pooled connection used as `with connect() as conn:`; the transaction
+  commits at block exit (the contract the old `sqlite3.connect()` context
+  manager provided). Rows come back as dicts (`row["col"]`). Every other
+  module in this package imports `connect` from here.
 - [vocab.py](vocab.py) — record types only (`Problem` dataclass,
   `Bucket` NamedTuple, `DIFFICULTY_BUCKETS`) plus the `normalize_tag` /
   `normalize_tags` helpers (trim + lowercase + dedup, shared by storage and
   the API). No runtime deps so any module can import it without pulling in
-  sqlite3 or filesystem code.
+  the database driver or filesystem code.
 - [paths.py](paths.py) — user-context binding (`set_current_user`,
-  `reset_current_user`) and per-user path helpers
-  (`user_dir`, `problems_dir`, `figures_dir`, `index_path`,
-  `figure_path`, `raw_uploads_dir`, `raw_upload_path`). All paths live
-  under `data/<email>/` so the GCS-Fuse mount on Cloud Run persists
-  them; never hardcode a path or write outside `data/`.
+  `reset_current_user`, `current_user_id`) and per-user path helpers
+  (`user_dir`, `problems_dir`, `figures_dir`, `figure_path`,
+  `raw_uploads_dir`, `raw_upload_path`). All file paths live under
+  `data/<email>/` so the GCS-Fuse mount on Cloud Run persists them; never
+  hardcode a path or write outside `data/`. `current_user_id()` returns the
+  same slug used as the `user_id` column value in every Postgres row.
 - [problem_io.py](problem_io.py) — JSON read/write for problem records.
-  `save_problem` / `update_problem` both mirror into the SQLite index.
+  `save_problem` / `update_problem` both mirror into the Postgres index.
   `delete_problem` removes the JSON, the figure (if any), and the index row.
 - [sql_index.py](sql_index.py) — filter-aware `query_index` /
-  `sample_index` used by the API, plus the shared `_connect` /
-  `_upsert_index_row` helpers. Assumes the schema is already in place;
-  DDL lives in [../db_setup/schema.sql](../db_setup/schema.sql) and is
-  applied by `common.db_setup.setup.init_user()` from `/auth/callback`
-  on login.
+  `sample_index` used by the API, plus the shared `_upsert_index_row`
+  helper. Every query is scoped to the active user via `user_id`. Assumes
+  the schema is already in place; DDL lives in
+  [../db_setup/schema.sql](../db_setup/schema.sql) and is applied by
+  `common.db_setup.setup.ensure_schema()` (lazily, once per process);
+  `init_user()` runs it and then backfills the user's problems on login.
 - [queue.py](queue.py) — per-user raw-file queue used by the offline
   worker. Five-state lifecycle (`pending_image_scan` →
   `processing_image_scan` → `pending_problem_solve` →
@@ -34,15 +45,15 @@ Per-user, file-backed problem store with a derived SQLite index.
   `enqueue_raw`, `claim_next_image_scan`, `claim_next_problem_solve`,
   `advance_to_problem_solve`, `mark_done`, `mark_failed`,
   `revert_image_scan`, `revert_problem_solve`,
-  `reclaim_stale_processing`, `pending_count`. Lives in `raw_queue.db`
-  (separate from `problems_index.db`); DDL lives in
-  [../db_setup/queue_schema.sql](../db_setup/queue_schema.sql) and is
-  also applied by `init_user()`. Both `claim_next_*` helpers use
-  `BEGIN IMMEDIATE` so two workers polling the same user don't race.
+  `reclaim_stale_processing`, `pending_count`. The `raw_files` table
+  shares the same Postgres database as the index (DDL in
+  [../db_setup/schema.sql](../db_setup/schema.sql)). Both `claim_next_*`
+  helpers use a `SELECT ... FOR UPDATE SKIP LOCKED` subquery so two workers
+  polling the same user claim different rows instead of racing.
 - [category_edits.py](category_edits.py) — append-only log of manual
   category corrections (`record_category_edit`, `category_edit_examples`).
-  Lives in the same SQLite DB as the index but is **authoritative**, not
-  derived — unlike the `problems` table, it can't be rebuilt from the JSON
+  Lives in the same Postgres database as the index but is **authoritative**,
+  not derived — unlike the `problems` table, it can't be rebuilt from the JSON
   files. Each row denormalizes problem_text + solution at edit time so
   examples stand on their own as training context for the recategorization
   reviewer.
@@ -60,31 +71,41 @@ Per-user, file-backed problem store with a derived SQLite index.
 ```
 data/
 └── <sanitized-email>/
-    ├── problems/         <uuid>.json — canonical, append-only
-    ├── figures/          <uuid>.png  — cropped figures referenced by problems
-    ├── raw/              <sha256>.<ext> — uploaded sources awaiting worker
-    ├── problems_index.db SQLite mirror, auto-rebuilt from JSON if missing
-    └── raw_queue.db      SQLite queue tracking raw-file processing state
+    ├── problems/   <uuid>.json — canonical, append-only
+    ├── figures/    <uuid>.png  — cropped figures referenced by problems
+    └── raw/        <sha256>.<ext> — uploaded sources awaiting worker
 ```
 
+The index (`problems`, `problem_tags`), queue (`raw_files`), and the
+authoritative `tags` / `category_edits` tables live in Postgres (schema
+`math_collection`), one database for all users, every row tagged with a
+`user_id` column equal to the `data/<sanitized-email>/` slug.
+
 `sanitize_email` lowercases and replaces filesystem-unsafe chars; the
-non-whitelisted "guest" bucket also lives under `data/guest/`.
+non-whitelisted "guest" bucket also lives under `data/guest/` (user_id
+`guest`).
 
 ## Conventions
 
-- **JSON is canonical, SQLite is derived — for the `problems` table.**
-  Deleting `problems_index.db` is safe for the index; the next login
-  re-runs `common.db_setup.setup.init_user`, which recreates the schema and backfills
-  from the JSON files. The `category_edits` table in the same DB is the
-  **exception**: it's authoritative and is not rebuildable, so don't drop
-  the DB casually if a user has edited categories.
-- **`raw_queue.db` is authoritative.** It tracks per-file status,
-  with_solution, attempts, and errors — none of which can be rebuilt
-  from the filesystem. Deleting it forces every raw file to re-enqueue
-  on next upload (or it stays unprocessed forever). The `problems` table
-  uses `(source_image, seq_no)` to dedupe at the agent layer, so even if
-  the queue is wiped and a file is reprocessed, already-saved problems
-  are skipped.
+- **JSON is canonical, Postgres is derived — for the `problems` and
+  `problem_tags` tables.** Deleting a user's `problems` rows is safe; the
+  next login re-runs `common.db_setup.setup.init_user`, which ensures the
+  schema and backfills from the JSON files. The `category_edits` and `tags`
+  tables are the **exception**: they're authoritative and not rebuildable,
+  so don't truncate them casually if a user has edited categories or named
+  tags.
+- **The `raw_files` queue table is authoritative.** It tracks per-file
+  status, with_solution, attempts, and errors — none of which can be rebuilt
+  from the filesystem. Deleting a user's rows forces every raw file to
+  re-enqueue on next upload (or it stays unprocessed forever). The `problems`
+  table uses `(source_image, seq_no)` to dedupe at the agent layer, so even
+  if the queue is wiped and a file is reprocessed, already-saved problems are
+  skipped.
+- **Backfill is per-user and version-gated.** `schema_version` holds the
+  latest version this schema declares; `user_data_version` holds, per user,
+  the version that user's rows were last backfilled to. When they differ,
+  `init_user()` re-upserts every problem from that user's JSON and bumps the
+  user's row. Bump the literal in `schema.sql` after adding a column.
 - **Every write to a problem JSON file must mirror into the index** —
   that's what `_upsert_index_row` is for. Don't write a record without
   upserting, or `/api/problems` will miss it.
@@ -107,8 +128,9 @@ non-whitelisted "guest" bucket also lives under `data/guest/`.
 
 ## Don't
 
-- Don't query SQLite directly from outside this package — go through
-  `query_index` / `sample_index` so the user-context check runs.
+- Don't query Postgres directly from outside this package — go through
+  `query_index` / `sample_index` so the user-context check and `user_id`
+  scoping run. Every SQL statement in this package must filter by `user_id`.
 - Don't add an edit endpoint without an explicit ask; the current design is
   append-only.
 - Don't import Flask or the agent here.

@@ -40,6 +40,12 @@ def _user_slug() -> str:
         ) from e
 
 
+def current_user_id() -> str:
+    """The active user's slug, used as the `user_id` column value in every
+    Postgres row. Same value as the per-user data directory name."""
+    return _user_slug()
+
+
 def user_dir() -> Path:
     return DATA_DIR / _user_slug()
 
@@ -62,11 +68,3 @@ def raw_uploads_dir() -> Path:
 
 def raw_upload_path(filename: str) -> Path:
     return raw_uploads_dir() / filename
-
-
-def index_path() -> Path:
-    return user_dir() / "problems_index.db"
-
-
-def queue_path() -> Path:
-    return user_dir() / "raw_queue.db"

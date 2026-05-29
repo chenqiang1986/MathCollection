@@ -1,60 +1,69 @@
-"""Per-user SQLite DB initialization.
+"""Postgres schema setup and per-user JSON backfill.
 
-Apply [schema.sql](schema.sql) to the current user's index DB. When the
-schema file declares a version newer than what the DB has been backfilled
-to, re-upsert every row from the JSON files so columns added by the new
-ALTER statements pick up real values instead of placeholder defaults.
-Caller must have already bound the user context via
-`storage.set_current_user(...)`.
+`ensure_schema()` applies [schema.sql](schema.sql) once per process (it is
+idempotent — every statement is CREATE ... IF NOT EXISTS). `init_user()`
+ensures the schema exists, then — if the current user's rows were backfilled
+to an older schema version than this file declares — re-upserts every problem
+from that user's JSON files so columns added by a newer schema pick up real
+values. Caller must have bound the user context via
+`storage.set_current_user(...)` first.
 """
 
 import json
-import sqlite3
 from pathlib import Path
 
-from common.storage.paths import index_path, problems_dir, queue_path
-from common.storage.sql_index import _connect, _upsert_index_row
+from common.storage.db import SCHEMA, connect
+from common.storage.paths import current_user_id, problems_dir
+from common.storage.sql_index import _upsert_index_row
 from common.storage.vocab import Problem
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
-QUEUE_SCHEMA_FILE = Path(__file__).resolve().parent / "queue_schema.sql"
+
+_schema_ready = False
+
+
+def ensure_schema() -> None:
+    """Apply schema.sql once per process. Cheap and idempotent, but guarded
+    so we don't replay the DDL on every login / queue poll."""
+    global _schema_ready
+    if _schema_ready:
+        return
+    with connect() as conn:
+        # Create the target schema and point this connection at it before
+        # applying the (schema-unqualified) DDL. SCHEMA is the single source
+        # of truth for the name; db.py sets the same value as every pooled
+        # connection's search_path.
+        conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{SCHEMA}"')
+        conn.execute(f'SET search_path TO "{SCHEMA}"')
+        for stmt in _split_statements(SCHEMA_FILE.read_text()):
+            conn.execute(stmt)
+    _schema_ready = True
 
 
 def init_user() -> None:
-    db = index_path()
-    db.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db) as conn:
-        _apply_schema(conn, SCHEMA_FILE)
-        schema_v, data_v = conn.execute(
-            "SELECT schema_version, data_version FROM schema_version"
+    ensure_schema()
+    user = current_user_id()
+    with connect() as conn:
+        schema_v = conn.execute(
+            "SELECT schema_version FROM schema_version"
+        ).fetchone()["schema_version"]
+        row = conn.execute(
+            "SELECT data_version FROM user_data_version WHERE user_id = %s",
+            (user,),
         ).fetchone()
-    _init_queue_db()
+        data_v = row["data_version"] if row else 0
     if schema_v == data_v:
         return
     _backfill_problems()
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
-            "UPDATE schema_version SET data_version = ?", (schema_v,)
+            """
+            INSERT INTO user_data_version (user_id, data_version)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET data_version = excluded.data_version
+            """,
+            (user, schema_v),
         )
-
-
-def _init_queue_db() -> None:
-    qdb = queue_path()
-    qdb.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(qdb) as conn:
-        _apply_schema(conn, QUEUE_SCHEMA_FILE)
-
-
-def _apply_schema(conn: sqlite3.Connection, schema_file: Path) -> None:
-    """Run a schema SQL script one statement at a time, tolerating
-    duplicate-column errors when ALTER TABLE statements are re-executed
-    on an already-migrated DB. (SQLite has no `ADD COLUMN IF NOT EXISTS`.)"""
-    for stmt in _split_statements(schema_file.read_text()):
-        try:
-            conn.execute(stmt)
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
 
 
 def _split_statements(sql: str):
@@ -71,7 +80,7 @@ def _backfill_problems() -> None:
     pdir = problems_dir()
     if not pdir.exists():
         return
-    with _connect() as conn:
+    with connect() as conn:
         for p in sorted(pdir.glob("*.json")):
             try:
                 data = json.loads(p.read_text())

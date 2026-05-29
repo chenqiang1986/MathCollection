@@ -1,4 +1,4 @@
-"""Per-user SQLite queue tracking raw files awaiting agent processing.
+"""Postgres queue tracking raw files awaiting agent processing.
 
 Lifecycle per file:
 
@@ -10,13 +10,18 @@ Lifecycle per file:
 
 The webapp's `/upload` inserts new rows at `pending_image_scan`; the
 offline worker in `worker/` claims rows at either pending state, drives
-the appropriate stage, and advances or reverts them. Schema lives in
-[../../db_setup/queue_schema.sql](../../db_setup/queue_schema.sql).
+the appropriate stage, and advances or reverts them. Rows are scoped to
+the active user via the `user_id` column. The `claim_next_*` helpers use
+`SELECT ... FOR UPDATE SKIP LOCKED` so two workers polling the same user
+don't grab the same row. Schema lives in
+[../db_setup/schema.sql](../db_setup/schema.sql).
 """
 
-import sqlite3
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple
+
+from common.storage.db import connect
+from common.storage.paths import current_user_id
 
 EnqueueResult = Literal["new", "retried", "skipped"]
 Stage = Literal["image_scan", "problem_solve"]
@@ -31,15 +36,6 @@ FAILED = "failed"
 _PENDING_STATES = (PENDING_IMAGE_SCAN, PENDING_PROBLEM_SOLVE)
 _PROCESSING_STATES = (PROCESSING_IMAGE_SCAN, PROCESSING_PROBLEM_SOLVE)
 _IN_FLIGHT_STATES = _PENDING_STATES + _PROCESSING_STATES
-
-from common.storage.paths import queue_path, user_dir
-
-
-def _connect() -> sqlite3.Connection:
-    user_dir().mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(queue_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def _now() -> str:
@@ -57,7 +53,7 @@ class QueueItem(NamedTuple):
     finished_at: str | None
 
 
-def _row_to_item(row: sqlite3.Row) -> QueueItem:
+def _row_to_item(row: dict) -> QueueItem:
     return QueueItem(
         filename=row["filename"],
         with_solution=bool(row["with_solution"]),
@@ -77,126 +73,115 @@ def enqueue_raw(filename: str, with_solution: bool) -> EnqueueResult:
 
     Returns "new" for a fresh insert, "retried" if a terminal row was
     flipped back to start, "skipped" if the row was already in flight."""
-    with _connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    user = current_user_id()
+    with connect() as conn:
         existing = conn.execute(
-            "SELECT status FROM raw_files WHERE filename = ?", (filename,)
+            "SELECT status FROM raw_files WHERE user_id = %s AND filename = %s "
+            "FOR UPDATE",
+            (user, filename),
         ).fetchone()
         if existing is None:
             conn.execute(
                 """
                 INSERT INTO raw_files
-                    (filename, with_solution, status, queued_at)
-                VALUES (?, ?, ?, ?)
+                    (user_id, filename, with_solution, status, queued_at)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (filename, 1 if with_solution else 0, PENDING_IMAGE_SCAN, _now()),
+                (user, filename, 1 if with_solution else 0, PENDING_IMAGE_SCAN, _now()),
             )
-            conn.execute("COMMIT")
             return "new"
         if existing["status"] in (FAILED, DONE):
             conn.execute(
                 """
                 UPDATE raw_files
-                SET status = ?,
-                    with_solution = ?,
-                    queued_at = ?,
+                SET status = %s,
+                    with_solution = %s,
+                    queued_at = %s,
                     started_at = NULL,
                     finished_at = NULL,
                     last_error = NULL
-                WHERE filename = ?
+                WHERE user_id = %s AND filename = %s
                 """,
-                (PENDING_IMAGE_SCAN, 1 if with_solution else 0, _now(), filename),
+                (PENDING_IMAGE_SCAN, 1 if with_solution else 0, _now(), user, filename),
             )
-            conn.execute("COMMIT")
             return "retried"
-        conn.execute("COMMIT")
         return "skipped"
 
 
-def _claim_pending(conn: sqlite3.Connection, pending: str, processing: str) -> QueueItem | None:
+def _claim_pending(conn, pending: str, processing: str) -> QueueItem | None:
+    """Atomically claim the oldest row in `pending` for the active user and
+    flip it to `processing`. `FOR UPDATE SKIP LOCKED` lets concurrent workers
+    skip a row another worker already holds instead of blocking."""
     row = conn.execute(
         """
-        SELECT * FROM raw_files
-        WHERE status = ?
-        ORDER BY queued_at ASC
-        LIMIT 1
-        """,
-        (pending,),
-    ).fetchone()
-    if row is None:
-        return None
-    conn.execute(
-        """
         UPDATE raw_files
-        SET status = ?,
+        SET status = %s,
             attempts = attempts + 1,
-            started_at = ?,
+            started_at = %s,
             last_error = NULL
-        WHERE filename = ?
+        WHERE (user_id, filename) = (
+            SELECT user_id, filename FROM raw_files
+            WHERE user_id = %s AND status = %s
+            ORDER BY queued_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
         """,
-        (processing, _now(), row["filename"]),
-    )
-    updated = conn.execute(
-        "SELECT * FROM raw_files WHERE filename = ?", (row["filename"],)
+        (processing, _now(), current_user_id(), pending),
     ).fetchone()
-    return _row_to_item(updated)
+    return _row_to_item(row) if row is not None else None
 
 
 def claim_next_image_scan() -> QueueItem | None:
     """Pick the oldest `pending_image_scan` row, flip it to
     `processing_image_scan`, bump attempts. Returns None if none pending."""
-    with _connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        item = _claim_pending(conn, PENDING_IMAGE_SCAN, PROCESSING_IMAGE_SCAN)
-        conn.execute("COMMIT")
-    return item
+    with connect() as conn:
+        return _claim_pending(conn, PENDING_IMAGE_SCAN, PROCESSING_IMAGE_SCAN)
 
 
 def claim_next_problem_solve() -> QueueItem | None:
     """Pick the oldest `pending_problem_solve` row, flip it to
     `processing_problem_solve`, bump attempts. Returns None if none pending."""
-    with _connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        item = _claim_pending(conn, PENDING_PROBLEM_SOLVE, PROCESSING_PROBLEM_SOLVE)
-        conn.execute("COMMIT")
-    return item
+    with connect() as conn:
+        return _claim_pending(conn, PENDING_PROBLEM_SOLVE, PROCESSING_PROBLEM_SOLVE)
 
 
 def advance_to_problem_solve(filename: str) -> None:
     """`processing_image_scan` → `pending_problem_solve`. Resets attempts
     so the solve stage gets its own retry budget independent of scan."""
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, started_at = NULL, attempts = 0, last_error = NULL
-            WHERE filename = ?
+            SET status = %s, started_at = NULL, attempts = 0, last_error = NULL
+            WHERE user_id = %s AND filename = %s
             """,
-            (PENDING_PROBLEM_SOLVE, filename),
+            (PENDING_PROBLEM_SOLVE, current_user_id(), filename),
         )
 
 
 def mark_done(filename: str) -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, finished_at = ?, last_error = NULL
-            WHERE filename = ?
+            SET status = %s, finished_at = %s, last_error = NULL
+            WHERE user_id = %s AND filename = %s
             """,
-            (DONE, _now(), filename),
+            (DONE, _now(), current_user_id(), filename),
         )
 
 
 def mark_failed(filename: str, error: str) -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, finished_at = ?, last_error = ?
-            WHERE filename = ?
+            SET status = %s, finished_at = %s, last_error = %s
+            WHERE user_id = %s AND filename = %s
             """,
-            (FAILED, _now(), error, filename),
+            (FAILED, _now(), error, current_user_id(), filename),
         )
 
 
@@ -205,74 +190,76 @@ def retry_failed(filename: str) -> bool:
     it up again. Preserves `with_solution`; clears `last_error`/timestamps
     and resets `attempts`. Returns True if a failed row was retried, False
     if the row didn't exist or wasn't in `failed`."""
-    with _connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    user = current_user_id()
+    with connect() as conn:
         row = conn.execute(
-            "SELECT status FROM raw_files WHERE filename = ?", (filename,)
+            "SELECT status FROM raw_files WHERE user_id = %s AND filename = %s "
+            "FOR UPDATE",
+            (user, filename),
         ).fetchone()
         if row is None or row["status"] != FAILED:
-            conn.execute("COMMIT")
             return False
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?,
-                queued_at = ?,
+            SET status = %s,
+                queued_at = %s,
                 started_at = NULL,
                 finished_at = NULL,
                 attempts = 0,
                 last_error = NULL
-            WHERE filename = ?
+            WHERE user_id = %s AND filename = %s
             """,
-            (PENDING_IMAGE_SCAN, _now(), filename),
+            (PENDING_IMAGE_SCAN, _now(), user, filename),
         )
-        conn.execute("COMMIT")
     return True
 
 
 def revert_image_scan(filename: str, error: str | None = None) -> None:
     """`processing_image_scan` → `pending_image_scan` (no attempt consumed
     from the user's POV — attempts counter stays as-is for visibility)."""
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, started_at = NULL, last_error = ?
-            WHERE filename = ?
+            SET status = %s, started_at = NULL, last_error = %s
+            WHERE user_id = %s AND filename = %s
             """,
-            (PENDING_IMAGE_SCAN, error, filename),
+            (PENDING_IMAGE_SCAN, error, current_user_id(), filename),
         )
 
 
 def revert_problem_solve(filename: str, error: str | None = None) -> None:
     """`processing_problem_solve` → `pending_problem_solve`."""
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, started_at = NULL, last_error = ?
-            WHERE filename = ?
+            SET status = %s, started_at = NULL, last_error = %s
+            WHERE user_id = %s AND filename = %s
             """,
-            (PENDING_PROBLEM_SOLVE, error, filename),
+            (PENDING_PROBLEM_SOLVE, error, current_user_id(), filename),
         )
 
 
 def pending_count() -> int:
     """Total files awaiting any stage (image_scan or problem_solve)."""
-    with _connect() as conn:
-        placeholders = ",".join("?" * len(_PENDING_STATES))
+    with connect() as conn:
         row = conn.execute(
-            f"SELECT COUNT(*) AS n FROM raw_files WHERE status IN ({placeholders})",
-            _PENDING_STATES,
+            "SELECT COUNT(*) AS n FROM raw_files "
+            "WHERE user_id = %s AND status = ANY(%s)",
+            (current_user_id(), list(_PENDING_STATES)),
         ).fetchone()
     return int(row["n"])
 
 
 def status_counts() -> dict[str, int]:
     """Return row counts grouped by status."""
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM raw_files GROUP BY status"
+            "SELECT status, COUNT(*) AS n FROM raw_files "
+            "WHERE user_id = %s GROUP BY status",
+            (current_user_id(),),
         ).fetchall()
     return {row["status"]: int(row["n"]) for row in rows}
 
@@ -295,13 +282,12 @@ def list_items(
         f"WHEN '{DONE}' THEN 5 "
         "ELSE 6 END"
     )
-    params: tuple = ()
-    where = ""
+    where = "WHERE user_id = %s"
+    params: list = [current_user_id()]
     if statuses:
-        placeholders = ",".join("?" * len(statuses))
-        where = f"WHERE status IN ({placeholders})"
-        params = tuple(statuses)
-    with _connect() as conn:
+        where += " AND status = ANY(%s)"
+        params.append(list(statuses))
+    with connect() as conn:
         rows = conn.execute(
             f"""
             SELECT * FROM raw_files
@@ -309,9 +295,9 @@ def list_items(
             ORDER BY {order},
                      COALESCE(finished_at, started_at, queued_at) DESC,
                      queued_at ASC
-            LIMIT ?
+            LIMIT %s
             """,
-            params + (int(limit),),
+            (*params, int(limit)),
         ).fetchall()
     return [_row_to_item(r) for r in rows]
 
@@ -320,23 +306,24 @@ def reclaim_stale_processing() -> int:
     """At worker startup, move any `processing_*` rows back to the matching
     `pending_*` so a crashed prior run's in-flight work gets retried instead
     of stuck forever. Returns the number of rows reclaimed."""
-    with _connect() as conn:
+    user = current_user_id()
+    with connect() as conn:
         cur1 = conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, started_at = NULL,
+            SET status = %s, started_at = NULL,
                 last_error = 'reclaimed from stale processing_image_scan'
-            WHERE status = ?
+            WHERE user_id = %s AND status = %s
             """,
-            (PENDING_IMAGE_SCAN, PROCESSING_IMAGE_SCAN),
+            (PENDING_IMAGE_SCAN, user, PROCESSING_IMAGE_SCAN),
         )
         cur2 = conn.execute(
             """
             UPDATE raw_files
-            SET status = ?, started_at = NULL,
+            SET status = %s, started_at = NULL,
                 last_error = 'reclaimed from stale processing_problem_solve'
-            WHERE status = ?
+            WHERE user_id = %s AND status = %s
             """,
-            (PENDING_PROBLEM_SOLVE, PROCESSING_PROBLEM_SOLVE),
+            (PENDING_PROBLEM_SOLVE, user, PROCESSING_PROBLEM_SOLVE),
         )
         return cur1.rowcount + cur2.rowcount

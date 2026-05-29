@@ -25,7 +25,7 @@ HTTP-facing lives here.
   All gated by `@login_required`.
 - [uploads.py](uploads.py) — `POST /upload` (whitelist-only): saves the
   raw image under `data/<email>/raw/` (via `storage.raw_uploads_dir()`)
-  and enqueues it in the per-user `raw_queue.db` via
+  and enqueues it in the Postgres `raw_files` table via
   `storage.enqueue_raw(...)`. **The web tier no longer calls the agent
   on upload** — the offline worker in [worker/](../../../worker/) drains
   the queue. Also serves per-user figure PNGs at `/figures/<filename>`.
@@ -34,9 +34,10 @@ HTTP-facing lives here.
 
 - **Every handler that touches storage is decorated with `@login_required`.**
   That decorator binds `storage.set_current_user(storage_email(email))`
-  for the duration of the request. The SQLite mirror is created on first
+  for the duration of the request. The Postgres schema is created on first
   successful login by [`/auth/callback`](auth.py), which calls
-  [`common.db_setup.setup.init_user`](../../../common/db_setup/setup.py) under the user context.
+  [`common.db_setup.setup.init_user`](../../../common/db_setup/setup.py) under the user context
+  (it ensures the schema and backfills the user's problems from JSON).
   Handlers themselves never create tables. Don't call storage directly
   without the decorator.
 - **`upload_allowed_required` goes AFTER `login_required`.** Login first,
