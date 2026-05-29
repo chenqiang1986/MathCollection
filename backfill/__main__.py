@@ -4,6 +4,7 @@ Usage:
     python -m backfill classify --email <email> [--mode missing|all] [--dry-run]
     python -m backfill subexam --email <email> [--mode missing|all]
         [--dry-run] [--update-exam]
+    python -m backfill bamo-subexam --email <email> [--dry-run]
 """
 
 import argparse
@@ -12,6 +13,7 @@ import sys
 from common import storage
 from common.db_setup.setup import init_user
 
+from backfill.bamo_subexam import backfill_bamo_subexams
 from backfill.classify import classify_problems
 from backfill.subexam import backfill_subexams
 
@@ -83,6 +85,23 @@ def main() -> int:
         ),
     )
 
+    sub_b = sub.add_parser(
+        "bamo-subexam",
+        help=(
+            "Normalize existing BAMO subexam spellings (bamo-8, BAMO8, "
+            "bamo8-12, …) to one of '8', '12', '8/12'. Pure string remap; "
+            "does not re-read the exam images."
+        ),
+    )
+    sub_b.add_argument(
+        "--email", help="The user email whose problems to backfill."
+    )
+    sub_b.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print proposed updates without writing.",
+    )
+
     args = parser.parse_args()
     storage.set_current_user(args.email)
     init_user()
@@ -105,6 +124,16 @@ def main() -> int:
             f"[backfill] done: scanned {files} file(s); "
             f"{updated} of {targeted} matched problem(s) updated; "
             f"{skipped} problem(s) had no matching raw file{suffix}."
+        )
+        return 0
+    if args.task == "bamo-subexam":
+        total, updated, unchanged = backfill_bamo_subexams(
+            dry_run=args.dry_run
+        )
+        suffix = " (dry run, no writes)" if args.dry_run else ""
+        print(
+            f"[backfill] done: {total} BAMO problem(s); "
+            f"{updated} normalized, {unchanged} unchanged{suffix}."
         )
         return 0
     return 1
