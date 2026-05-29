@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from webapp.src.web import auth, routes_api, routes_pages, uploads
@@ -38,6 +38,20 @@ def create_app() -> Flask:
     app.wsgi_app = ForwardedPrefixMiddleware(
         ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     )
+
+    @app.context_processor
+    def inject_static_url():
+        """`static_url('js/app.js')` is `url_for('static', ...)` plus a `v=`
+        query of the file's mtime. The URL changes whenever the asset does,
+        so browsers and the Cloudflare edge fetch the new file immediately
+        instead of serving a stale copy from their cache TTL."""
+        def static_url(filename: str) -> str:
+            try:
+                version = int(os.stat(os.path.join(app.static_folder, filename)).st_mtime)
+            except OSError:
+                version = 0
+            return url_for("static", filename=filename, v=version)
+        return {"static_url": static_url}
 
     auth.init_auth(app)
     app.register_blueprint(auth.bp)
