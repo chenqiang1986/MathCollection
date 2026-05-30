@@ -71,8 +71,6 @@
                 aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
         <div class="pair-menu-panel" id="cat-menu-panel" role="menu" hidden></div>
       </div>
-    </div>
-    <div class="filter-row pair-chips-row" id="cat-filter-chips-row" hidden>
       <span class="tag-chip-list" id="cat-filter-chips"></span>
     </div>
     <div class="filter-row">
@@ -82,36 +80,34 @@
                 aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
         <div class="pair-menu-panel" id="exam-menu-panel" role="menu" hidden></div>
       </div>
+      <span class="tag-chip-list" id="exam-filter-chips"></span>
+    </div>
+    <div class="filter-row">
       <span class="pair-menu-caption">Year:</span>
       <div class="pair-menu" id="year-menu">
         <button type="button" class="pair-menu-trigger" id="year-menu-trigger"
                 aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
         <div class="pair-menu-panel" id="year-menu-panel" role="menu" hidden></div>
       </div>
-    </div>
-    <div class="filter-row pair-chips-row" id="exam-filter-chips-row" hidden>
-      <span class="tag-chip-list" id="exam-filter-chips"></span>
-    </div>
-    <div class="filter-row pair-chips-row" id="year-filter-chips-row" hidden>
       <span class="tag-chip-list" id="year-filter-chips"></span>
     </div>
     <div class="filter-row">
-      <label>Figure:
-        <select id="filter-figure">
-          <option value="">All</option>
-          <option value="1">With figure</option>
-          <option value="0">Without figure</option>
-        </select>
-      </label>
+      <span class="pair-menu-caption">Figure:</span>
+      <div class="pair-menu" id="figure-menu">
+        <button type="button" class="pair-menu-trigger" id="figure-menu-trigger"
+                aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
+        <div class="pair-menu-panel" id="figure-menu-panel" role="menu" hidden></div>
+      </div>
+      <span class="tag-chip-list" id="figure-filter-chips"></span>
     </div>
     <div class="filter-row">
-      <label class="tag-filter-label">Tags:
-        <span class="tag-filter" id="tag-filter">
-          <span class="tag-chip-list" id="tag-filter-chips"></span>
-          <input type="text" id="tag-filter-input" class="tag-input" list="all-tags"
-                 placeholder="filter by tag…" autocomplete="off">
-        </span>
-      </label>
+      <span class="pair-menu-caption">Tags:</span>
+      <div class="pair-menu" id="tag-menu">
+        <button type="button" class="pair-menu-trigger" id="tag-menu-trigger"
+                aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
+        <div class="pair-menu-panel" id="tag-menu-panel" role="menu" hidden></div>
+      </div>
+      <span class="tag-chip-list" id="tag-filter-chips"></span>
     </div>
     <div class="filter-row">
       <label class="range-label">Difficulty Measure:

@@ -68,21 +68,25 @@ def _parse_pairs(param: str, *, lower: bool) -> list[tuple[str, str]] | None:
     return out or None
 
 
+def _parse_figures() -> list[int] | None:
+    """Figure filter from repeated `has_figure=` params, each "1" (has figure)
+    or "0" (no figure). Deduped, OR semantics on the server; selecting both is
+    the same as no filter. None when empty so it's treated as no filter."""
+    out: list[int] = []
+    for raw in request.args.getlist("has_figure"):
+        v = raw.strip()
+        if v in ("0", "1") and int(v) not in out:
+            out.append(int(v))
+    return out or None
+
+
 def _parse_filters() -> dict:
-    full_range_max = _parse_float("range_max")
-    raw_has_figure = request.args.get("has_figure")
-    if raw_has_figure == "1":
-        has_figure: bool | None = True
-    elif raw_has_figure == "0":
-        has_figure = False
-    else:
-        has_figure = None
     return {
         "min_time": _parse_float("min_time"),
         "max_time": _parse_float("max_time"),
-        "full_range_max": full_range_max,
+        "full_range_max": _parse_float("range_max"),
         "years": _parse_values("year"),
-        "has_figure": has_figure,
+        "figures": _parse_figures(),
         "tags": _parse_tags(),
         "cat_subcat": _parse_pairs("cat_subcat", lower=True),
         "exam_subexam": _parse_pairs("exam_subexam", lower=False),

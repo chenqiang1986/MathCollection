@@ -35,9 +35,6 @@
   const filtersEl = document.getElementById("filters");
   const filtersToggle = document.getElementById("filters-toggle");
   const printBar = document.getElementById("print-bar");
-  const figureSel = document.getElementById("filter-figure");
-  const tagFilterInput = document.getElementById("tag-filter-input");
-  const tagFilterChips = document.getElementById("tag-filter-chips");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -69,8 +66,6 @@
   // datalist, plus a name→comment map for fast tooltip lookups.
   let knownTags = [];
   let tagCommentMap = {};
-  // Tags currently chosen in the tag filter (OR semantics on the server).
-  let tagFilter = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -271,6 +266,7 @@
     }
     if (comment || !(name in tagCommentMap)) tagCommentMap[name] = comment || "";
     refreshTagDatalist();
+    tagMenuFilter.build();
   }
 
   async function saveProblemTags(problemEl, tags, statusEl) {
@@ -385,6 +381,7 @@
     tagCommentMap = {};
     knownTags.forEach(t => { tagCommentMap[t.name] = t.comment || ""; });
     refreshTagDatalist();
+    tagMenuFilter.build();
   }
 
   // Fetch a single tag's registry entry ({name, comment, count}) or null —
@@ -420,40 +417,8 @@
       alertDialog(`Could not delete tag: ${e.message}`, { title: "Delete failed" });
       return;
     }
-    if (tagFilter.indexOf(name) !== -1) removeTagFilter(name);
+    if (tagMenuFilter.has(name)) tagMenuFilter.remove(name);
     await loadTags();
-  }
-
-  function renderTagFilterChips() {
-    if (!tagFilterChips) return;
-    tagFilterChips.innerHTML = "";
-    tagFilter.forEach(t => {
-      const chip = document.createElement("span");
-      chip.className = "filter-chip";
-      chip.dataset.tag = t;
-      const comment = tagComment(t);
-      if (comment) chip.title = comment;
-      chip.innerHTML = `<span>${escapeHtml(t)}</span>` +
-        `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
-      tagFilterChips.appendChild(chip);
-    });
-  }
-
-  function addTagFilter(raw) {
-    const name = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
-    if (!name || tagFilter.indexOf(name) !== -1) return;
-    tagFilter.push(name);
-    renderTagFilterChips();
-    if (tagFilterInput) tagFilterInput.value = "";
-    onFilterChange();
-  }
-
-  function removeTagFilter(name) {
-    const i = tagFilter.indexOf(name);
-    if (i === -1) return;
-    tagFilter.splice(i, 1);
-    renderTagFilterChips();
-    onFilterChange();
   }
 
   // A reusable OR filter: a dropdown menu feeding a removable chip list. The
@@ -468,7 +433,6 @@
     const triggerEl = document.getElementById(opts.triggerId);
     const panelEl = document.getElementById(opts.panelId);
     const chipsEl = document.getElementById(opts.chipsId);
-    const chipsRowEl = document.getElementById(opts.chipsRowId);
     const selected = [];  // [{ value, label }], deduped by value
 
     function renderChips() {
@@ -478,16 +442,16 @@
         const chip = document.createElement("span");
         chip.className = "filter-chip";
         chip.dataset.value = p.value;
+        if (p.title) chip.title = p.title;
         chip.innerHTML = `<span>${escapeHtml(p.label)}</span>` +
           `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
         chipsEl.appendChild(chip);
       });
-      if (chipsRowEl) chipsRowEl.hidden = selected.length === 0;
     }
 
-    function add(value, label) {
+    function add(value, label, title) {
       if (!value || selected.some(p => p.value === value)) return;
-      selected.push({ value, label });
+      selected.push({ value, label, title: title || "" });
       renderChips();
       onFilterChange();
     }
@@ -503,13 +467,14 @@
     // Build a clickable leaf carrying its param value + chip label. `menuText`
     // is what shows inside the menu (e.g. "All", "Function", "2023"); `chipLabel`
     // is the chip text once selected (e.g. "Algebra — Function").
-    function makeLeaf(value, menuText, chipLabel, extraClass) {
+    function makeLeaf(value, menuText, chipLabel, extraClass, title) {
       const leaf = document.createElement("div");
       leaf.className = "pair-menu-sub" + (extraClass ? " " + extraClass : "");
       leaf.setAttribute("role", "menuitem");
       leaf.setAttribute("tabindex", "0");
       leaf.dataset.value = value;
       leaf.dataset.label = chipLabel;
+      if (title) { leaf.dataset.title = title; leaf.title = title; }
       leaf.textContent = menuText;
       return leaf;
     }
@@ -537,7 +502,7 @@
       triggerEl.setAttribute("aria-expanded", "false");
     }
     function commit(leaf) {
-      add(leaf.dataset.value, leaf.dataset.label);
+      add(leaf.dataset.value, leaf.dataset.label, leaf.dataset.title);
       close();
     }
 
@@ -575,6 +540,8 @@
     return {
       build,
       isActive: () => selected.length > 0,
+      has: (value) => selected.some(p => p.value === value),
+      remove,
       appendParams: (params) => {
         selected.forEach(p => params.append(opts.paramName, p.value));
       },
@@ -609,18 +576,20 @@
   }
 
   // Panel builder for a flat picker: each value is a directly clickable leaf.
-  function listPopulate({ getValues, formatValue }) {
+  // Optional `titleFor(value)` supplies a hover tooltip (e.g. a tag's comment),
+  // carried onto the chip once selected.
+  function listPopulate({ getValues, formatValue, titleFor }) {
     return (panelEl, makeLeaf) => {
       getValues().forEach(v => {
         const label = formatValue(v);
-        panelEl.appendChild(makeLeaf(v, label, label));
+        panelEl.appendChild(makeLeaf(v, label, label, null, titleFor ? titleFor(v) : ""));
       });
     };
   }
 
   const catFilter = createMenuFilter({
     menuId: "cat-menu", triggerId: "cat-menu-trigger", panelId: "cat-menu-panel",
-    chipsId: "cat-filter-chips", chipsRowId: "cat-filter-chips-row",
+    chipsId: "cat-filter-chips",
     paramName: "cat_subcat",
     populate: pairPopulate({
       getGroups: () => knownCategories.slice().sort(),
@@ -632,7 +601,7 @@
 
   const examFilter = createMenuFilter({
     menuId: "exam-menu", triggerId: "exam-menu-trigger", panelId: "exam-menu-panel",
-    chipsId: "exam-filter-chips", chipsRowId: "exam-filter-chips-row",
+    chipsId: "exam-filter-chips",
     paramName: "exam_subexam",
     populate: pairPopulate({
       getGroups: () => examList.slice(),  // exams are stored case-sensitively
@@ -644,11 +613,33 @@
 
   const yearFilter = createMenuFilter({
     menuId: "year-menu", triggerId: "year-menu-trigger", panelId: "year-menu-panel",
-    chipsId: "year-filter-chips", chipsRowId: "year-filter-chips-row",
+    chipsId: "year-filter-chips",
     paramName: "year",
     populate: listPopulate({
       getValues: () => yearList.slice(),
       formatValue: (s) => s,
+    }),
+  });
+
+  // Figure is a fixed two-value picker; selecting both is the same as no filter.
+  const figureFilter = createMenuFilter({
+    menuId: "figure-menu", triggerId: "figure-menu-trigger", panelId: "figure-menu-panel",
+    chipsId: "figure-filter-chips",
+    paramName: "has_figure",
+    populate: listPopulate({
+      getValues: () => ["1", "0"],
+      formatValue: (v) => (v === "1" ? "With figure" : "Without figure"),
+    }),
+  });
+
+  const tagMenuFilter = createMenuFilter({
+    menuId: "tag-menu", triggerId: "tag-menu-trigger", panelId: "tag-menu-panel",
+    chipsId: "tag-filter-chips",
+    paramName: "tags",
+    populate: listPopulate({
+      getValues: () => knownTags.map(t => t.name),
+      formatValue: (v) => v,
+      titleFor: (v) => tagComment(v),
     }),
   });
 
@@ -664,8 +655,8 @@
     catFilter.appendParams(params);
     examFilter.appendParams(params);
     yearFilter.appendParams(params);
-    if (figureSel && figureSel.value) params.set("has_figure", figureSel.value);
-    tagFilter.forEach(t => params.append("tags", t));
+    figureFilter.appendParams(params);
+    tagMenuFilter.appendParams(params);
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
@@ -709,8 +700,8 @@
       catFilter.isActive() ||
       examFilter.isActive() ||
       yearFilter.isActive() ||
-      (figureSel && figureSel.value) ||
-      tagFilter.length > 0 ||
+      figureFilter.isActive() ||
+      tagMenuFilter.isActive() ||
       rangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
@@ -1428,6 +1419,7 @@
     refreshCategoryDatalist();
     refreshSubcategoryDatalist();
     catFilter.build();
+    figureFilter.build();
 
     filtersEl.hidden = false;
     printBar.hidden = false;
@@ -1441,26 +1433,9 @@
     });
   }
 
-  // The category, exam, and year menus (trigger, flyouts, chips, outside-click
-  // close) are fully wired inside createMenuFilter — see catFilter / examFilter /
-  // yearFilter.
-  if (figureSel) figureSel.addEventListener("change", onFilterChange);
-  if (tagFilterInput) {
-    // `change` fires when picking a datalist suggestion; Enter commits a typed tag.
-    tagFilterInput.addEventListener("change", () => addTagFilter(tagFilterInput.value));
-    tagFilterInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); addTagFilter(tagFilterInput.value); }
-    });
-  }
-  if (tagFilterChips) {
-    tagFilterChips.addEventListener("click", (e) => {
-      const rm = e.target.closest(".filter-chip-remove");
-      if (rm) {
-        const chip = rm.closest(".filter-chip");
-        if (chip) removeTagFilter(chip.dataset.tag);
-      }
-    });
-  }
+  // The category, exam, year, figure, and tag menus (trigger, flyouts, chips,
+  // outside-click close) are fully wired inside createMenuFilter — see
+  // catFilter / examFilter / yearFilter / figureFilter / tagMenuFilter.
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
 

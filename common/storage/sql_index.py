@@ -133,7 +133,7 @@ def _build_where(
     max_time: float | None,
     full_range_max: float | None = None,
     years: list[str] | None = None,
-    has_figure: bool | None = None,
+    figures: list[int] | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
     exam_subexam: list[tuple[str, str]] | None = None,
@@ -143,8 +143,9 @@ def _build_where(
     NULL solve_time_seconds. Multiple tags match with OR semantics (a problem
     qualifies if it carries any of them). cat_subcat / exam_subexam are lists of
     (category, subcategory) / (source_exam, subexam) pairs, each matched with OR
-    semantics; an empty second element matches the whole category / exam. tags
-    and years likewise match any of the supplied values (OR)."""
+    semantics; an empty second element matches the whole category / exam. tags,
+    years, and figures (each 1=has figure, 0=no figure) likewise match any of
+    the supplied values (OR)."""
     where: list[str] = ["user_id = %s"]
     params: list = [current_user_id()]
     if cat_subcat:
@@ -173,10 +174,10 @@ def _build_where(
         placeholders = ", ".join("%s" for _ in years)
         where.append(f"year IN ({placeholders})")
         params.extend(years)
-    if has_figure is True:
-        where.append("has_figure = 1")
-    elif has_figure is False:
-        where.append("has_figure = 0")
+    if figures:
+        placeholders = ", ".join("%s" for _ in figures)
+        where.append(f"has_figure IN ({placeholders})")
+        params.extend(figures)
     if tags:
         placeholders = ", ".join("%s" for _ in tags)
         where.append(
@@ -207,14 +208,14 @@ def query_index(
     page_size: int = 5,
     full_range_max: float | None = None,
     years: list[str] | None = None,
-    has_figure: bool | None = None,
+    figures: list[int] | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
     exam_subexam: list[tuple[str, str]] | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
-        years, has_figure, tags, cat_subcat, exam_subexam,
+        years, figures, tags, cat_subcat, exam_subexam,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -238,14 +239,14 @@ def sample_index(
     max_time: float | None = None,
     full_range_max: float | None = None,
     years: list[str] | None = None,
-    has_figure: bool | None = None,
+    figures: list[int] | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
     exam_subexam: list[tuple[str, str]] | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
-        years, has_figure, tags, cat_subcat, exam_subexam,
+        years, figures, tags, cat_subcat, exam_subexam,
     )
     with connect() as conn:
         rows = conn.execute(
