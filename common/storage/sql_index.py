@@ -129,8 +129,6 @@ def existing_seq_nos(source_image: str) -> set[int]:
 
 
 def _build_where(
-    category: str | None,
-    subcategory: str | None,
     min_time: float | None,
     max_time: float | None,
     full_range_max: float | None = None,
@@ -139,19 +137,27 @@ def _build_where(
     year: str | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
+    cat_subcat: list[tuple[str, str]] | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause (always scoped to the active user). If
     min_time/max_time covers the full slider range, do not exclude rows with
     NULL solve_time_seconds. Multiple tags match with OR semantics (a problem
-    qualifies if it carries any of them)."""
+    qualifies if it carries any of them). cat_subcat is a list of
+    (category, subcategory) pairs matched with OR semantics; an empty
+    subcategory in a pair matches the whole category."""
     where: list[str] = ["user_id = %s"]
     params: list = [current_user_id()]
-    if category:
-        where.append("category = %s")
-        params.append(category.lower())
-    if subcategory:
-        where.append("subcategory = %s")
-        params.append(subcategory.lower())
+    if cat_subcat:
+        clauses: list[str] = []
+        for cat, sub in cat_subcat:
+            if sub:
+                clauses.append("(category = %s AND subcategory = %s)")
+                params.append(cat.lower())
+                params.append(sub.lower())
+            else:
+                clauses.append("category = %s")
+                params.append(cat.lower())
+        where.append("(" + " OR ".join(clauses) + ")")
     if source_exam:
         where.append("source_exam = %s")
         params.append(source_exam)
@@ -189,8 +195,6 @@ def _build_where(
 
 
 def query_index(
-    category: str | None = None,
-    subcategory: str | None = None,
     min_time: float | None = None,
     max_time: float | None = None,
     page: int = 1,
@@ -201,10 +205,11 @@ def query_index(
     year: str | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
+    cat_subcat: list[tuple[str, str]] | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
-        category, subcategory, min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure, tags,
+        min_time, max_time, full_range_max,
+        source_exam, subexam, year, has_figure, tags, cat_subcat,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -224,8 +229,6 @@ def query_index(
 
 def sample_index(
     n: int,
-    category: str | None = None,
-    subcategory: str | None = None,
     min_time: float | None = None,
     max_time: float | None = None,
     full_range_max: float | None = None,
@@ -234,10 +237,11 @@ def sample_index(
     year: str | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
+    cat_subcat: list[tuple[str, str]] | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
-        category, subcategory, min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure, tags,
+        min_time, max_time, full_range_max,
+        source_exam, subexam, year, has_figure, tags, cat_subcat,
     )
     with connect() as conn:
         rows = conn.execute(

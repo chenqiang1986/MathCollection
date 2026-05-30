@@ -38,6 +38,9 @@
   const catSel = document.getElementById("filter-category");
   const subSel = document.getElementById("filter-subcategory");
   const subLabel = document.getElementById("filter-subcategory-label");
+  const catFilterAdd = document.getElementById("cat-filter-add");
+  const catFilterChips = document.getElementById("cat-filter-chips");
+  const catFilterChipsRow = document.getElementById("cat-filter-chips-row");
   const examSel = document.getElementById("filter-exam");
   const subexamSel = document.getElementById("filter-subexam");
   const subexamLabel = document.getElementById("filter-subexam-label");
@@ -74,6 +77,10 @@
   let tagCommentMap = {};
   // Tags currently chosen in the tag filter (OR semantics on the server).
   let tagFilter = [];
+  // Category/subcategory pairs chosen in the filter (OR semantics on the
+  // server). Each entry is { category, subcategory }; an empty subcategory
+  // means the whole category ("All").
+  let catSubFilter = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -459,6 +466,43 @@
     onFilterChange();
   }
 
+  function catFilterLabel(p) {
+    return titleCase(p.category) + " — " + (p.subcategory ? titleCase(p.subcategory) : "All");
+  }
+
+  function renderCatFilterChips() {
+    if (!catFilterChips) return;
+    catFilterChips.innerHTML = "";
+    catSubFilter.forEach(p => {
+      const chip = document.createElement("span");
+      chip.className = "filter-chip";
+      chip.dataset.category = p.category;
+      chip.dataset.subcategory = p.subcategory;
+      chip.innerHTML = `<span>${escapeHtml(catFilterLabel(p))}</span>` +
+        `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
+      catFilterChips.appendChild(chip);
+    });
+    if (catFilterChipsRow) catFilterChipsRow.hidden = catSubFilter.length === 0;
+  }
+
+  function addCatFilter(category, subcategory) {
+    const cat = (category || "").trim().toLowerCase();
+    if (!cat) return;
+    const sub = (subcategory || "").trim().toLowerCase();
+    if (catSubFilter.some(p => p.category === cat && p.subcategory === sub)) return;
+    catSubFilter.push({ category: cat, subcategory: sub });
+    renderCatFilterChips();
+    onFilterChange();
+  }
+
+  function removeCatFilter(category, subcategory) {
+    const i = catSubFilter.findIndex(p => p.category === category && p.subcategory === subcategory);
+    if (i === -1) return;
+    catSubFilter.splice(i, 1);
+    renderCatFilterChips();
+    onFilterChange();
+  }
+
   function rangeActive() {
     if (!minInput || !maxInput) return false;
     const lo = parseFloat(minInput.value);
@@ -468,8 +512,9 @@
 
   function currentFilterParams() {
     const params = new URLSearchParams();
-    if (catSel && catSel.value) params.set("category", catSel.value);
-    if (subSel && subSel.value) params.set("subcategory", subSel.value);
+    catSubFilter.forEach(p => {
+      params.append("cat_subcat", p.subcategory ? `${p.category}:${p.subcategory}` : p.category);
+    });
     if (examSel && examSel.value) params.set("source_exam", examSel.value);
     if (subexamSel && subexamSel.value) params.set("subexam", subexamSel.value);
     if (yearSel && yearSel.value) params.set("year", yearSel.value);
@@ -515,8 +560,7 @@
   function updateFilterCount(total) {
     if (!countEl) return;
     const active =
-      (catSel && catSel.value) ||
-      (subSel && subSel.value) ||
+      catSubFilter.length > 0 ||
       (examSel && examSel.value) ||
       (subexamSel && subexamSel.value) ||
       (yearSel && yearSel.value) ||
@@ -1167,9 +1211,11 @@
     if (!cat) {
       subSel.value = "";
       if (subLabel) subLabel.hidden = true;
+      if (catFilterAdd) catFilterAdd.hidden = true;
       return;
     }
     if (subLabel) subLabel.hidden = false;
+    if (catFilterAdd) catFilterAdd.hidden = false;
     const previousValue = subSel.value;
     const options = (subcategoryMap[cat] || []).slice();
     subSel.innerHTML = `<option value="">All</option>`;
@@ -1318,11 +1364,27 @@
     });
   }
 
-  if (catSel) catSel.addEventListener("change", () => {
-    refreshSubcategorySelect();
-    onFilterChange();
-  });
-  if (subSel) subSel.addEventListener("change", onFilterChange);
+  // Category/subcategory are a builder for the OR chip list, not live filters:
+  // changing them only repopulates the subcategory options. The "+ Add" button
+  // commits the current pair as a chip, which is what actually filters.
+  if (catSel) catSel.addEventListener("change", refreshSubcategorySelect);
+  if (catFilterAdd) {
+    catFilterAdd.addEventListener("click", () => {
+      if (!catSel || !catSel.value) return;
+      addCatFilter(catSel.value, subSel ? subSel.value : "");
+      catSel.value = "";
+      refreshSubcategorySelect();
+    });
+  }
+  if (catFilterChips) {
+    catFilterChips.addEventListener("click", (e) => {
+      const rm = e.target.closest(".filter-chip-remove");
+      if (rm) {
+        const chip = rm.closest(".filter-chip");
+        if (chip) removeCatFilter(chip.dataset.category, chip.dataset.subcategory);
+      }
+    });
+  }
   if (examSel) examSel.addEventListener("change", () => {
     refreshSubexamSelect();
     onFilterChange();

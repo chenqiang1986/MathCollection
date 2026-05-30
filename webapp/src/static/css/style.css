@@ -205,6 +205,12 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
 .filters.collapsed .filters-body { display: none; }
 .filters-body { display: flex; flex-direction: column; gap: 0.5rem; }
 .filter-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+.cat-filter-add {
+  font-size: 0.8rem; padding: 2px 10px; cursor: pointer;
+  background: #fff; color: #06c; border: 1px dashed #9bbcdf; border-radius: 10px;
+}
+.cat-filter-add:hover { background: #f3f8ff; }
+.cat-filter-chips-row { gap: 0.35rem; }
 .filters label { font-size: 0.9rem; color: #555; }
 .filters select, .filters input[type=number] { padding: 0.25rem 0.5rem; font-size: 0.9rem; }
 .filters input[type=number] { width: 4.5rem; }

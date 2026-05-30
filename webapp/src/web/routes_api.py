@@ -37,9 +37,25 @@ def _parse_tags() -> list[str] | None:
     return out or None
 
 
+def _parse_cat_subcat() -> list[tuple[str, str]] | None:
+    """Category/subcategory filter from repeated `cat_subcat=` params, each
+    encoded as `category` or `category:subcategory`. An empty subcategory means
+    the whole category; pairs match with OR semantics. Deduped; None when empty
+    so it's treated as no filter."""
+    out: list[tuple[str, str]] = []
+    for raw in request.args.getlist("cat_subcat"):
+        cat, _sep, sub = raw.partition(":")
+        cat = cat.strip().lower()
+        sub = sub.strip().lower()
+        if not cat:
+            continue
+        pair = (cat, sub)
+        if pair not in out:
+            out.append(pair)
+    return out or None
+
+
 def _parse_filters() -> dict:
-    category = request.args.get("category") or None
-    subcategory = request.args.get("subcategory") or None
     source_exam = request.args.get("source_exam") or None
     subexam = request.args.get("subexam") or None
     year = request.args.get("year") or None
@@ -52,8 +68,6 @@ def _parse_filters() -> dict:
     else:
         has_figure = None
     return {
-        "category": category,
-        "subcategory": subcategory,
         "min_time": _parse_float("min_time"),
         "max_time": _parse_float("max_time"),
         "full_range_max": full_range_max,
@@ -62,6 +76,7 @@ def _parse_filters() -> dict:
         "year": year,
         "has_figure": has_figure,
         "tags": _parse_tags(),
+        "cat_subcat": _parse_cat_subcat(),
     }
 
 
