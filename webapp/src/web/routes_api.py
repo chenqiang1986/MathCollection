@@ -37,28 +37,38 @@ def _parse_tags() -> list[str] | None:
     return out or None
 
 
-def _parse_cat_subcat() -> list[tuple[str, str]] | None:
-    """Category/subcategory filter from repeated `cat_subcat=` params, each
-    encoded as `category` or `category:subcategory`. An empty subcategory means
-    the whole category; pairs match with OR semantics. Deduped; None when empty
-    so it's treated as no filter."""
+def _parse_values(param: str) -> list[str] | None:
+    """Parse a repeated single-value filter param into a deduped list (OR
+    semantics on the server). None when empty so it's treated as no filter."""
+    out: list[str] = []
+    for raw in request.args.getlist(param):
+        v = raw.strip()
+        if v and v not in out:
+            out.append(v)
+    return out or None
+
+
+def _parse_pairs(param: str, *, lower: bool) -> list[tuple[str, str]] | None:
+    """Parse a repeated pair filter param, each value encoded as `head` or
+    `head:tail` (split on the first colon). An empty tail means "the whole
+    head"; pairs match with OR semantics on the server. Deduped; None when
+    empty so it's treated as no filter. `lower` lowercases both parts (used for
+    category/subcategory, which are stored lowercased; exam values are stored
+    case-sensitively, so they pass lower=False)."""
     out: list[tuple[str, str]] = []
-    for raw in request.args.getlist("cat_subcat"):
-        cat, _sep, sub = raw.partition(":")
-        cat = cat.strip().lower()
-        sub = sub.strip().lower()
-        if not cat:
+    for raw in request.args.getlist(param):
+        head, _sep, tail = raw.partition(":")
+        head = head.strip().lower() if lower else head.strip()
+        tail = tail.strip().lower() if lower else tail.strip()
+        if not head:
             continue
-        pair = (cat, sub)
+        pair = (head, tail)
         if pair not in out:
             out.append(pair)
     return out or None
 
 
 def _parse_filters() -> dict:
-    source_exam = request.args.get("source_exam") or None
-    subexam = request.args.get("subexam") or None
-    year = request.args.get("year") or None
     full_range_max = _parse_float("range_max")
     raw_has_figure = request.args.get("has_figure")
     if raw_has_figure == "1":
@@ -71,12 +81,11 @@ def _parse_filters() -> dict:
         "min_time": _parse_float("min_time"),
         "max_time": _parse_float("max_time"),
         "full_range_max": full_range_max,
-        "source_exam": source_exam,
-        "subexam": subexam,
-        "year": year,
+        "years": _parse_values("year"),
         "has_figure": has_figure,
         "tags": _parse_tags(),
-        "cat_subcat": _parse_cat_subcat(),
+        "cat_subcat": _parse_pairs("cat_subcat", lower=True),
+        "exam_subexam": _parse_pairs("exam_subexam", lower=False),
     }
 
 

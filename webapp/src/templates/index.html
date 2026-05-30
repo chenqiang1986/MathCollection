@@ -65,37 +65,35 @@
     </button>
     <div class="filters-body" id="filters-body">
     <div class="filter-row">
-      <label>Category:
-        <select id="filter-category">
-          <option value="">All</option>
-        </select>
-      </label>
-      <label id="filter-subcategory-label" hidden>Subcategory:
-        <select id="filter-subcategory">
-          <option value="">All</option>
-        </select>
-      </label>
-      <button type="button" id="cat-filter-add" class="cat-filter-add" hidden>+ Add</button>
+      <span class="pair-menu-caption">Category:</span>
+      <div class="pair-menu" id="cat-menu">
+        <button type="button" class="pair-menu-trigger" id="cat-menu-trigger"
+                aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
+        <div class="pair-menu-panel" id="cat-menu-panel" role="menu" hidden></div>
+      </div>
     </div>
-    <div class="filter-row cat-filter-chips-row" id="cat-filter-chips-row" hidden>
+    <div class="filter-row pair-chips-row" id="cat-filter-chips-row" hidden>
       <span class="tag-chip-list" id="cat-filter-chips"></span>
     </div>
     <div class="filter-row">
-      <label>Exam:
-        <select id="filter-exam">
-          <option value="">All</option>
-        </select>
-      </label>
-      <label id="filter-subexam-label" hidden>Subexam:
-        <select id="filter-subexam">
-          <option value="">All</option>
-        </select>
-      </label>
-      <label>Year:
-        <select id="filter-year">
-          <option value="">All</option>
-        </select>
-      </label>
+      <span class="pair-menu-caption">Exam:</span>
+      <div class="pair-menu" id="exam-menu">
+        <button type="button" class="pair-menu-trigger" id="exam-menu-trigger"
+                aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
+        <div class="pair-menu-panel" id="exam-menu-panel" role="menu" hidden></div>
+      </div>
+      <span class="pair-menu-caption">Year:</span>
+      <div class="pair-menu" id="year-menu">
+        <button type="button" class="pair-menu-trigger" id="year-menu-trigger"
+                aria-haspopup="true" aria-expanded="false">+ Add filter ▾</button>
+        <div class="pair-menu-panel" id="year-menu-panel" role="menu" hidden></div>
+      </div>
+    </div>
+    <div class="filter-row pair-chips-row" id="exam-filter-chips-row" hidden>
+      <span class="tag-chip-list" id="exam-filter-chips"></span>
+    </div>
+    <div class="filter-row pair-chips-row" id="year-filter-chips-row" hidden>
+      <span class="tag-chip-list" id="year-filter-chips"></span>
     </div>
     <div class="filter-row">
       <label>Figure:

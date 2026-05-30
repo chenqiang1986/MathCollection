@@ -132,19 +132,19 @@ def _build_where(
     min_time: float | None,
     max_time: float | None,
     full_range_max: float | None = None,
-    source_exam: str | None = None,
-    subexam: str | None = None,
-    year: str | None = None,
+    years: list[str] | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
+    exam_subexam: list[tuple[str, str]] | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause (always scoped to the active user). If
     min_time/max_time covers the full slider range, do not exclude rows with
     NULL solve_time_seconds. Multiple tags match with OR semantics (a problem
-    qualifies if it carries any of them). cat_subcat is a list of
-    (category, subcategory) pairs matched with OR semantics; an empty
-    subcategory in a pair matches the whole category."""
+    qualifies if it carries any of them). cat_subcat / exam_subexam are lists of
+    (category, subcategory) / (source_exam, subexam) pairs, each matched with OR
+    semantics; an empty second element matches the whole category / exam. tags
+    and years likewise match any of the supplied values (OR)."""
     where: list[str] = ["user_id = %s"]
     params: list = [current_user_id()]
     if cat_subcat:
@@ -158,15 +158,21 @@ def _build_where(
                 clauses.append("category = %s")
                 params.append(cat.lower())
         where.append("(" + " OR ".join(clauses) + ")")
-    if source_exam:
-        where.append("source_exam = %s")
-        params.append(source_exam)
-    if subexam:
-        where.append("subexam = %s")
-        params.append(subexam)
-    if year:
-        where.append("year = %s")
-        params.append(year)
+    if exam_subexam:
+        clauses = []
+        for exam, sub in exam_subexam:
+            if sub:
+                clauses.append("(source_exam = %s AND subexam = %s)")
+                params.append(exam)
+                params.append(sub)
+            else:
+                clauses.append("source_exam = %s")
+                params.append(exam)
+        where.append("(" + " OR ".join(clauses) + ")")
+    if years:
+        placeholders = ", ".join("%s" for _ in years)
+        where.append(f"year IN ({placeholders})")
+        params.extend(years)
     if has_figure is True:
         where.append("has_figure = 1")
     elif has_figure is False:
@@ -200,16 +206,15 @@ def query_index(
     page: int = 1,
     page_size: int = 5,
     full_range_max: float | None = None,
-    source_exam: str | None = None,
-    subexam: str | None = None,
-    year: str | None = None,
+    years: list[str] | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
+    exam_subexam: list[tuple[str, str]] | None = None,
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure, tags, cat_subcat,
+        years, has_figure, tags, cat_subcat, exam_subexam,
     )
     page = max(1, int(page))
     page_size = max(1, int(page_size))
@@ -232,16 +237,15 @@ def sample_index(
     min_time: float | None = None,
     max_time: float | None = None,
     full_range_max: float | None = None,
-    source_exam: str | None = None,
-    subexam: str | None = None,
-    year: str | None = None,
+    years: list[str] | None = None,
     has_figure: bool | None = None,
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
+    exam_subexam: list[tuple[str, str]] | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
-        source_exam, subexam, year, has_figure, tags, cat_subcat,
+        years, has_figure, tags, cat_subcat, exam_subexam,
     )
     with connect() as conn:
         rows = conn.execute(

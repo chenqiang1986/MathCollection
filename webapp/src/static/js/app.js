@@ -35,16 +35,6 @@
   const filtersEl = document.getElementById("filters");
   const filtersToggle = document.getElementById("filters-toggle");
   const printBar = document.getElementById("print-bar");
-  const catSel = document.getElementById("filter-category");
-  const subSel = document.getElementById("filter-subcategory");
-  const subLabel = document.getElementById("filter-subcategory-label");
-  const catFilterAdd = document.getElementById("cat-filter-add");
-  const catFilterChips = document.getElementById("cat-filter-chips");
-  const catFilterChipsRow = document.getElementById("cat-filter-chips-row");
-  const examSel = document.getElementById("filter-exam");
-  const subexamSel = document.getElementById("filter-subexam");
-  const subexamLabel = document.getElementById("filter-subexam-label");
-  const yearSel = document.getElementById("filter-year");
   const figureSel = document.getElementById("filter-figure");
   const tagFilterInput = document.getElementById("tag-filter-input");
   const tagFilterChips = document.getElementById("tag-filter-chips");
@@ -69,6 +59,10 @@
   let subcategoryMap = {};
   // Map { exam: [subexam, ...] } returned by /api/summary.
   let subexamMap = {};
+  // Ordered list of distinct exams returned by /api/summary.
+  let examList = [];
+  // Ordered list of distinct years returned by /api/summary.
+  let yearList = [];
   // Flat set of all subcategories across categories (for datalist on edit).
   let knownSubcategories = [];
   // Tag registry from /api/tags: ordered [{name, comment, count}] for the
@@ -77,10 +71,6 @@
   let tagCommentMap = {};
   // Tags currently chosen in the tag filter (OR semantics on the server).
   let tagFilter = [];
-  // Category/subcategory pairs chosen in the filter (OR semantics on the
-  // server). Each entry is { category, subcategory }; an empty subcategory
-  // means the whole category ("All").
-  let catSubFilter = [];
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -466,42 +456,201 @@
     onFilterChange();
   }
 
-  function catFilterLabel(p) {
-    return titleCase(p.category) + " — " + (p.subcategory ? titleCase(p.subcategory) : "All");
-  }
+  // A reusable OR filter: a dropdown menu feeding a removable chip list. The
+  // menu shell (trigger, panel, chips, open/close, outside-click, params) is
+  // shared; `opts.populate(panelEl, makeLeaf)` builds the panel contents, so the
+  // same widget serves both the two-level pickers (category→subcategory,
+  // exam→subexam) and the flat one (year). Each selection is { value, label }:
+  // `value` is the query-param value, `label` the chip text. Returns
+  // { build, isActive, appendParams }.
+  function createMenuFilter(opts) {
+    const menuEl = document.getElementById(opts.menuId);
+    const triggerEl = document.getElementById(opts.triggerId);
+    const panelEl = document.getElementById(opts.panelId);
+    const chipsEl = document.getElementById(opts.chipsId);
+    const chipsRowEl = document.getElementById(opts.chipsRowId);
+    const selected = [];  // [{ value, label }], deduped by value
 
-  function renderCatFilterChips() {
-    if (!catFilterChips) return;
-    catFilterChips.innerHTML = "";
-    catSubFilter.forEach(p => {
-      const chip = document.createElement("span");
-      chip.className = "filter-chip";
-      chip.dataset.category = p.category;
-      chip.dataset.subcategory = p.subcategory;
-      chip.innerHTML = `<span>${escapeHtml(catFilterLabel(p))}</span>` +
-        `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
-      catFilterChips.appendChild(chip);
+    function renderChips() {
+      if (!chipsEl) return;
+      chipsEl.innerHTML = "";
+      selected.forEach(p => {
+        const chip = document.createElement("span");
+        chip.className = "filter-chip";
+        chip.dataset.value = p.value;
+        chip.innerHTML = `<span>${escapeHtml(p.label)}</span>` +
+          `<button type="button" class="filter-chip-remove" aria-label="Remove filter">×</button>`;
+        chipsEl.appendChild(chip);
+      });
+      if (chipsRowEl) chipsRowEl.hidden = selected.length === 0;
+    }
+
+    function add(value, label) {
+      if (!value || selected.some(p => p.value === value)) return;
+      selected.push({ value, label });
+      renderChips();
+      onFilterChange();
+    }
+
+    function remove(value) {
+      const i = selected.findIndex(p => p.value === value);
+      if (i === -1) return;
+      selected.splice(i, 1);
+      renderChips();
+      onFilterChange();
+    }
+
+    // Build a clickable leaf carrying its param value + chip label. `menuText`
+    // is what shows inside the menu (e.g. "All", "Function", "2023"); `chipLabel`
+    // is the chip text once selected (e.g. "Algebra — Function").
+    function makeLeaf(value, menuText, chipLabel, extraClass) {
+      const leaf = document.createElement("div");
+      leaf.className = "pair-menu-sub" + (extraClass ? " " + extraClass : "");
+      leaf.setAttribute("role", "menuitem");
+      leaf.setAttribute("tabindex", "0");
+      leaf.dataset.value = value;
+      leaf.dataset.label = chipLabel;
+      leaf.textContent = menuText;
+      return leaf;
+    }
+
+    function build() {
+      if (!panelEl) return;
+      panelEl.innerHTML = "";
+      opts.populate(panelEl, makeLeaf);
+      if (!panelEl.children.length) {
+        const empty = document.createElement("div");
+        empty.className = "pair-menu-item";
+        empty.textContent = "Nothing to filter yet";
+        panelEl.appendChild(empty);
+      }
+    }
+
+    function open() {
+      if (!panelEl || !triggerEl) return;
+      panelEl.hidden = false;
+      triggerEl.setAttribute("aria-expanded", "true");
+    }
+    function close() {
+      if (!panelEl || !triggerEl) return;
+      panelEl.hidden = true;
+      triggerEl.setAttribute("aria-expanded", "false");
+    }
+    function commit(leaf) {
+      add(leaf.dataset.value, leaf.dataset.label);
+      close();
+    }
+
+    if (triggerEl) {
+      triggerEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (panelEl.hidden) open(); else close();
+      });
+    }
+    if (panelEl) {
+      panelEl.addEventListener("click", (e) => {
+        const leaf = e.target.closest(".pair-menu-sub");
+        if (leaf) commit(leaf);
+      });
+      panelEl.addEventListener("keydown", (e) => {
+        const leaf = e.target.closest(".pair-menu-sub");
+        if (leaf && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); commit(leaf); }
+      });
+    }
+    if (chipsEl) {
+      chipsEl.addEventListener("click", (e) => {
+        const rm = e.target.closest(".filter-chip-remove");
+        if (!rm) return;
+        const chip = rm.closest(".filter-chip");
+        if (chip) remove(chip.dataset.value);
+      });
+    }
+    document.addEventListener("click", (e) => {
+      if (menuEl && !menuEl.contains(e.target)) close();
     });
-    if (catFilterChipsRow) catFilterChipsRow.hidden = catSubFilter.length === 0;
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && panelEl && !panelEl.hidden) close();
+    });
+
+    return {
+      build,
+      isActive: () => selected.length > 0,
+      appendParams: (params) => {
+        selected.forEach(p => params.append(opts.paramName, p.value));
+      },
+    };
   }
 
-  function addCatFilter(category, subcategory) {
-    const cat = (category || "").trim().toLowerCase();
-    if (!cat) return;
-    const sub = (subcategory || "").trim().toLowerCase();
-    if (catSubFilter.some(p => p.category === cat && p.subcategory === sub)) return;
-    catSubFilter.push({ category: cat, subcategory: sub });
-    renderCatFilterChips();
-    onFilterChange();
+  // Panel builder for a two-level picker: each group is a row with a hover
+  // flyout listing "All" plus its items. encode(group, item) → param value.
+  function pairPopulate({ getGroups, getItems, formatGroup, formatItem }) {
+    const encode = (group, item) => (item ? `${group}:${item}` : group);
+    return (panelEl, makeLeaf) => {
+      getGroups().forEach(group => {
+        const row = document.createElement("div");
+        row.className = "pair-menu-item";
+        row.setAttribute("tabindex", "0");
+        row.innerHTML = `<span>${escapeHtml(formatGroup(group))}</span>` +
+          `<span class="pair-menu-caret" aria-hidden="true">▸</span>`;
+        const submenu = document.createElement("div");
+        submenu.className = "pair-submenu";
+        submenu.setAttribute("role", "menu");
+        submenu.appendChild(
+          makeLeaf(encode(group, ""), "All", `${formatGroup(group)} — All`, "pair-menu-all"));
+        getItems(group).forEach(item => {
+          submenu.appendChild(
+            makeLeaf(encode(group, item), formatItem(item),
+              `${formatGroup(group)} — ${formatItem(item)}`));
+        });
+        row.appendChild(submenu);
+        panelEl.appendChild(row);
+      });
+    };
   }
 
-  function removeCatFilter(category, subcategory) {
-    const i = catSubFilter.findIndex(p => p.category === category && p.subcategory === subcategory);
-    if (i === -1) return;
-    catSubFilter.splice(i, 1);
-    renderCatFilterChips();
-    onFilterChange();
+  // Panel builder for a flat picker: each value is a directly clickable leaf.
+  function listPopulate({ getValues, formatValue }) {
+    return (panelEl, makeLeaf) => {
+      getValues().forEach(v => {
+        const label = formatValue(v);
+        panelEl.appendChild(makeLeaf(v, label, label));
+      });
+    };
   }
+
+  const catFilter = createMenuFilter({
+    menuId: "cat-menu", triggerId: "cat-menu-trigger", panelId: "cat-menu-panel",
+    chipsId: "cat-filter-chips", chipsRowId: "cat-filter-chips-row",
+    paramName: "cat_subcat",
+    populate: pairPopulate({
+      getGroups: () => knownCategories.slice().sort(),
+      getItems: (g) => (subcategoryMap[g] || []).slice().sort(),
+      formatGroup: titleCase,
+      formatItem: titleCase,
+    }),
+  });
+
+  const examFilter = createMenuFilter({
+    menuId: "exam-menu", triggerId: "exam-menu-trigger", panelId: "exam-menu-panel",
+    chipsId: "exam-filter-chips", chipsRowId: "exam-filter-chips-row",
+    paramName: "exam_subexam",
+    populate: pairPopulate({
+      getGroups: () => examList.slice(),  // exams are stored case-sensitively
+      getItems: (g) => (subexamMap[g] || []).slice().sort(),
+      formatGroup: (s) => s,
+      formatItem: titleCase,
+    }),
+  });
+
+  const yearFilter = createMenuFilter({
+    menuId: "year-menu", triggerId: "year-menu-trigger", panelId: "year-menu-panel",
+    chipsId: "year-filter-chips", chipsRowId: "year-filter-chips-row",
+    paramName: "year",
+    populate: listPopulate({
+      getValues: () => yearList.slice(),
+      formatValue: (s) => s,
+    }),
+  });
 
   function rangeActive() {
     if (!minInput || !maxInput) return false;
@@ -512,12 +661,9 @@
 
   function currentFilterParams() {
     const params = new URLSearchParams();
-    catSubFilter.forEach(p => {
-      params.append("cat_subcat", p.subcategory ? `${p.category}:${p.subcategory}` : p.category);
-    });
-    if (examSel && examSel.value) params.set("source_exam", examSel.value);
-    if (subexamSel && subexamSel.value) params.set("subexam", subexamSel.value);
-    if (yearSel && yearSel.value) params.set("year", yearSel.value);
+    catFilter.appendParams(params);
+    examFilter.appendParams(params);
+    yearFilter.appendParams(params);
     if (figureSel && figureSel.value) params.set("has_figure", figureSel.value);
     tagFilter.forEach(t => params.append("tags", t));
     if (minInput) params.set("min_time", minInput.value);
@@ -560,10 +706,9 @@
   function updateFilterCount(total) {
     if (!countEl) return;
     const active =
-      catSubFilter.length > 0 ||
-      (examSel && examSel.value) ||
-      (subexamSel && subexamSel.value) ||
-      (yearSel && yearSel.value) ||
+      catFilter.isActive() ||
+      examFilter.isActive() ||
+      yearFilter.isActive() ||
       (figureSel && figureSel.value) ||
       tagFilter.length > 0 ||
       rangeActive();
@@ -1069,7 +1214,7 @@
           recordKnownCategoryPair(data.problem.category, data.problem.subcategory || "");
           refreshCategoryDatalist();
           refreshSubcategoryDatalist();
-          refreshSubcategorySelect();
+          catFilter.build();
           const fresh = renderProblem(data.problem);
           problemEl.replaceWith(fresh);
           renderMath(fresh);
@@ -1173,66 +1318,6 @@
     });
   }
 
-  function refreshSubexamSelect() {
-    // Populate the subexam dropdown from the currently selected exam. The
-    // subexam filter is only meaningful once a specific exam is chosen, so it
-    // stays hidden (and reset to All) while Exam is "All".
-    if (!subexamSel) return;
-    const exam = examSel && examSel.value;
-    if (!exam) {
-      subexamSel.value = "";
-      if (subexamLabel) subexamLabel.hidden = true;
-      return;
-    }
-    if (subexamLabel) subexamLabel.hidden = false;
-    const previousValue = subexamSel.value;
-    const options = (subexamMap[exam] || []).slice();
-    subexamSel.innerHTML = `<option value="">All</option>`;
-    options.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s;
-      opt.textContent = s.replace(/\b\w/g, ch => ch.toUpperCase());
-      subexamSel.appendChild(opt);
-    });
-    if (previousValue && options.indexOf(previousValue) !== -1) {
-      subexamSel.value = previousValue;
-    } else {
-      subexamSel.value = "";
-    }
-  }
-
-  function refreshSubcategorySelect() {
-    // Populate the subcategory filter dropdown based on the currently selected
-    // category. The subcategory filter is only meaningful once a specific
-    // category is chosen, so it stays hidden (and reset to All) while
-    // Category is "All".
-    if (!subSel) return;
-    const cat = catSel && catSel.value;
-    if (!cat) {
-      subSel.value = "";
-      if (subLabel) subLabel.hidden = true;
-      if (catFilterAdd) catFilterAdd.hidden = true;
-      return;
-    }
-    if (subLabel) subLabel.hidden = false;
-    if (catFilterAdd) catFilterAdd.hidden = false;
-    const previousValue = subSel.value;
-    const options = (subcategoryMap[cat] || []).slice();
-    subSel.innerHTML = `<option value="">All</option>`;
-    options.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s;
-      opt.textContent = s.replace(/\b\w/g, ch => ch.toUpperCase());
-      subSel.appendChild(opt);
-    });
-    // Preserve the previous selection if it's still valid.
-    if (previousValue && options.indexOf(previousValue) !== -1) {
-      subSel.value = previousValue;
-    } else {
-      subSel.value = "";
-    }
-  }
-
   async function refineProblem(id, problemEl) {
     const panel = problemEl.querySelector(".refine-panel");
     if (!panel) return;
@@ -1330,19 +1415,11 @@
       maxInput.value = String(sliderMax);
     }
 
-    if (catSel) {
-      catSel.innerHTML = `<option value="">All</option>`;
-      summary.categories.forEach(c => {
-        const opt = document.createElement("option");
-        opt.value = c;
-        opt.textContent = c.replace(/\b\w/g, ch => ch.toUpperCase());
-        catSel.appendChild(opt);
-      });
-    }
-    populateSelect(examSel, summary.exams || []);
+    examList = (summary.exams || []).slice();
     subexamMap = summary.subexams || {};
-    refreshSubexamSelect();
-    populateSelect(yearSel, summary.years || []);
+    examFilter.build();
+    yearList = (summary.years || []).slice();
+    yearFilter.build();
     knownCategories = (summary.categories || []).slice();
     subcategoryMap = summary.subcategories || {};
     const subSet = new Set();
@@ -1350,7 +1427,7 @@
     knownSubcategories = Array.from(subSet).sort();
     refreshCategoryDatalist();
     refreshSubcategoryDatalist();
-    refreshSubcategorySelect();
+    catFilter.build();
 
     filtersEl.hidden = false;
     printBar.hidden = false;
@@ -1364,33 +1441,9 @@
     });
   }
 
-  // Category/subcategory are a builder for the OR chip list, not live filters:
-  // changing them only repopulates the subcategory options. The "+ Add" button
-  // commits the current pair as a chip, which is what actually filters.
-  if (catSel) catSel.addEventListener("change", refreshSubcategorySelect);
-  if (catFilterAdd) {
-    catFilterAdd.addEventListener("click", () => {
-      if (!catSel || !catSel.value) return;
-      addCatFilter(catSel.value, subSel ? subSel.value : "");
-      catSel.value = "";
-      refreshSubcategorySelect();
-    });
-  }
-  if (catFilterChips) {
-    catFilterChips.addEventListener("click", (e) => {
-      const rm = e.target.closest(".filter-chip-remove");
-      if (rm) {
-        const chip = rm.closest(".filter-chip");
-        if (chip) removeCatFilter(chip.dataset.category, chip.dataset.subcategory);
-      }
-    });
-  }
-  if (examSel) examSel.addEventListener("change", () => {
-    refreshSubexamSelect();
-    onFilterChange();
-  });
-  if (subexamSel) subexamSel.addEventListener("change", onFilterChange);
-  if (yearSel) yearSel.addEventListener("change", onFilterChange);
+  // The category, exam, and year menus (trigger, flyouts, chips, outside-click
+  // close) are fully wired inside createMenuFilter — see catFilter / examFilter /
+  // yearFilter.
   if (figureSel) figureSel.addEventListener("change", onFilterChange);
   if (tagFilterInput) {
     // `change` fires when picking a datalist suggestion; Enter commits a typed tag.
@@ -1410,21 +1463,6 @@
   }
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
-
-  function populateSelect(sel, values) {
-    if (!sel) return;
-    const previous = sel.value;
-    sel.innerHTML = `<option value="">All</option>`;
-    values.forEach(v => {
-      const opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = v;
-      sel.appendChild(opt);
-    });
-    if (previous && values.indexOf(previous) !== -1) {
-      sel.value = previous;
-    }
-  }
 
   pagePrev.addEventListener("click", () => {
     if (currentPage > 1) {
