@@ -80,7 +80,32 @@ form { padding: 1rem; border: 2px dashed #bbb; border-radius: 8px; margin: 1rem 
   background: #eef3fb; color: #244; border: 1px solid #cfe0f4; border-radius: 10px;
 }
 .tag-chip .tag-name { cursor: default; }
-.tag-chip[title] .tag-name { cursor: help; border-bottom: 1px dotted #9bbcdf; }
+.tag-chip[data-title] { position: relative; }
+.tag-chip[data-title] .tag-name { cursor: help; border-bottom: 1px dotted #9bbcdf; }
+/* Custom hover balloon for a tag's comment. Unlike the native title tooltip
+   (whose ~1s delay is fixed by the OS), this pops in after a short 0.15s delay.
+   The balloon is always present but hidden, so the transition-delay on opacity
+   actually applies on hover (a hover-only pseudo-element couldn't be delayed). */
+.tag-chip[data-title]::after {
+  content: attr(data-title);
+  position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+  margin-bottom: 0.4rem; z-index: 100;
+  background: #333; color: #fff; padding: 0.3rem 0.55rem; border-radius: 6px;
+  font-size: 0.78rem; line-height: 1.3;
+  white-space: normal; width: max-content; max-width: 16rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transition: opacity 0s 0.15s, visibility 0s 0.15s;
+}
+.tag-chip[data-title]::before {
+  content: ""; position: absolute; left: 50%; bottom: 100%;
+  transform: translateX(-50%); margin-bottom: 0.05rem; z-index: 100;
+  border: 5px solid transparent; border-top-color: #333; pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transition: opacity 0s 0.15s, visibility 0s 0.15s;
+}
+.tag-chip[data-title]:hover::after,
+.tag-chip[data-title]:hover::before { opacity: 1; visibility: visible; }
 .tag-chip .tag-remove {
   border: none; background: transparent; color: #88a; cursor: pointer;
   font-size: 0.9rem; line-height: 1; padding: 0 2px; border-radius: 50%;
@@ -245,6 +270,24 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
 .pair-menu-sub:hover { background: #06c; color: #fff; }
 .pair-menu-sub.pair-menu-all { font-style: italic; color: #555; border-bottom: 1px solid #eee; }
 .pair-menu-sub.pair-menu-all:hover { color: #fff; }
+/* Hover balloon showing a leaf's comment (e.g. a tag's description). Only
+   leaves carrying a comment via data-title get it; it pops out to the right of
+   the item so it clears the menu panel. */
+.pair-menu-sub[data-title] { position: relative; }
+.pair-menu-sub[data-title]:hover::after {
+  content: attr(data-title);
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+  margin-left: 0.55rem; z-index: 100;
+  background: #333; color: #fff; padding: 0.3rem 0.55rem; border-radius: 6px;
+  font-size: 0.78rem; font-style: normal; font-weight: 400; line-height: 1.3;
+  white-space: normal; width: max-content; max-width: 16rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); pointer-events: none;
+}
+.pair-menu-sub[data-title]:hover::before {
+  content: ""; position: absolute; left: 100%; top: 50%;
+  transform: translateY(-50%); margin-left: 0.1rem; z-index: 100;
+  border: 5px solid transparent; border-right-color: #333; pointer-events: none;
+}
 .filters label { font-size: 0.9rem; color: #555; }
 .filters select, .filters input[type=number] { padding: 0.25rem 0.5rem; font-size: 0.9rem; }
 .filters input[type=number] { width: 4.5rem; }

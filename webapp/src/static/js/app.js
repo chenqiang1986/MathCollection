@@ -238,7 +238,7 @@
     let html = `<div class="tags">`;
     tags.forEach(t => {
       const comment = tagComment(t);
-      const titleAttr = comment ? ` title="${escapeHtml(comment)}"` : "";
+      const titleAttr = comment ? ` data-title="${escapeHtml(comment)}"` : "";
       html += `<span class="tag-chip" data-tag="${escapeHtml(t)}"${titleAttr}>` +
         `<span class="tag-name">${escapeHtml(t)}</span>` +
         (CAN_UPLOAD ? `<button type="button" class="tag-remove" aria-label="Remove tag" title="Remove tag">×</button>` : "") +
@@ -474,7 +474,7 @@
       leaf.setAttribute("tabindex", "0");
       leaf.dataset.value = value;
       leaf.dataset.label = chipLabel;
-      if (title) { leaf.dataset.title = title; leaf.title = title; }
+      if (title) leaf.dataset.title = title;  // shown via the CSS hover balloon
       leaf.textContent = menuText;
       return leaf;
     }
