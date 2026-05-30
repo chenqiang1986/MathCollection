@@ -57,7 +57,7 @@ from common.storage.stats import (
     index_summary,
     subcategory_counts,
 )
-from common.storage.tags import list_tags, upsert_tag
+from common.storage.tags import delete_tag, list_tags, upsert_tag
 from common.storage.vocab import (
     CANONICAL_SOURCE_EXAMS,
     DIFFICULTY_BUCKETS,
@@ -90,6 +90,7 @@ __all__ = [
     "claim_next_problem_solve",
     "current_user_id",
     "delete_problem",
+    "delete_tag",
     "difficulty_distribution",
     "distinct_subexams",
     "enqueue_raw",

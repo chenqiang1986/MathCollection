@@ -58,14 +58,19 @@
 
   <h2>All saved problems (<span id="total-count">…</span>)</h2>
 
-  <div class="filters" id="filters" hidden>
+  <div class="filters collapsed" id="filters" hidden>
+    <button type="button" class="filters-toggle" id="filters-toggle" aria-expanded="false" aria-controls="filters-body">
+      <span class="filters-toggle-icon" aria-hidden="true">▾</span>
+      <span>Filters</span>
+    </button>
+    <div class="filters-body" id="filters-body">
     <div class="filter-row">
       <label>Category:
         <select id="filter-category">
           <option value="">All</option>
         </select>
       </label>
-      <label>Subcategory:
+      <label id="filter-subcategory-label" hidden>Subcategory:
         <select id="filter-subcategory">
           <option value="">All</option>
         </select>
@@ -77,7 +82,7 @@
           <option value="">All</option>
         </select>
       </label>
-      <label>Subexam:
+      <label id="filter-subexam-label" hidden>Subexam:
         <select id="filter-subexam">
           <option value="">All</option>
         </select>
@@ -117,6 +122,7 @@
         <span id="filter-time-display" class="range-display">0s – 60s</span>
       </label>
       <span id="filter-count" class="progress-text"></span>
+    </div>
     </div>
   </div>
   <div class="filters" id="print-bar" hidden>

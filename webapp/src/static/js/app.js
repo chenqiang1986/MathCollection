@@ -33,11 +33,14 @@
   }
 
   const filtersEl = document.getElementById("filters");
+  const filtersToggle = document.getElementById("filters-toggle");
   const printBar = document.getElementById("print-bar");
   const catSel = document.getElementById("filter-category");
   const subSel = document.getElementById("filter-subcategory");
+  const subLabel = document.getElementById("filter-subcategory-label");
   const examSel = document.getElementById("filter-exam");
   const subexamSel = document.getElementById("filter-subexam");
+  const subexamLabel = document.getElementById("filter-subexam-label");
   const yearSel = document.getElementById("filter-year");
   const figureSel = document.getElementById("filter-figure");
   const tagFilterInput = document.getElementById("tag-filter-input");
@@ -77,6 +80,59 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  // Promise-based replacements for the native alert()/confirm() popups. Builds a
+  // styled overlay on the fly and resolves when the user picks an action: true
+  // for confirm, false for cancel/backdrop/Escape. alertDialog has no cancel.
+  function showModal({ title, message, confirmText, cancelText, danger }) {
+    return new Promise(resolve => {
+      const overlay = document.createElement("div");
+      overlay.className = "app-modal";
+      const cancel = cancelText
+        ? `<button type="button" class="app-modal-cancel">${escapeHtml(cancelText)}</button>`
+        : "";
+      overlay.innerHTML =
+        `<div class="app-modal-backdrop"></div>` +
+        `<div class="app-modal-dialog" role="dialog" aria-modal="true">` +
+          (title ? `<h3 class="app-modal-title">${escapeHtml(title)}</h3>` : "") +
+          `<p class="app-modal-message">${escapeHtml(message)}</p>` +
+          `<div class="app-modal-actions">` + cancel +
+            `<button type="button" class="app-modal-confirm${danger ? " danger" : ""}">${escapeHtml(confirmText || "OK")}</button>` +
+          `</div>` +
+        `</div>`;
+      document.body.appendChild(overlay);
+
+      function close(result) {
+        document.removeEventListener("keydown", onKey);
+        overlay.remove();
+        resolve(result);
+      }
+      function onKey(e) {
+        if (e.key === "Escape") close(false);
+        else if (e.key === "Enter") close(true);
+      }
+      overlay.querySelector(".app-modal-confirm").addEventListener("click", () => close(true));
+      const cancelBtn = overlay.querySelector(".app-modal-cancel");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => close(false));
+      overlay.querySelector(".app-modal-backdrop").addEventListener("click", () => close(false));
+      document.addEventListener("keydown", onKey);
+      overlay.querySelector(".app-modal-confirm").focus();
+    });
+  }
+
+  function confirmDialog(message, opts = {}) {
+    return showModal({
+      message,
+      title: opts.title,
+      confirmText: opts.confirmText || "OK",
+      cancelText: opts.cancelText || "Cancel",
+      danger: opts.danger,
+    });
+  }
+
+  function alertDialog(message, opts = {}) {
+    return showModal({ message, title: opts.title, confirmText: opts.confirmText || "OK" });
   }
 
   function titleCase(s) {
@@ -334,6 +390,43 @@
     refreshTagDatalist();
   }
 
+  // Fetch a single tag's registry entry ({name, comment, count}) or null —
+  // cheaper than loadTags() when we only need to re-check one tag's usage.
+  async function fetchTag(name) {
+    try {
+      const resp = await fetch(`${URL_PREFIX}/api/tags?name=${encodeURIComponent(name)}`);
+      const data = await resp.json();
+      return (data.tags || [])[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // After a tag is removed from a problem, offer to delete the tag entirely if
+  // it was the last problem using it. Deletion is orphan-only on the server, so
+  // declining simply leaves the tag registered (an orphan, reusable later).
+  async function offerOrphanTagDeletion(name) {
+    const tag = await fetchTag(name);  // re-check just this tag's usage count
+    if (!tag || tag.count > 0) return;  // unknown or still in use → nothing to offer
+    const ok = await confirmDialog(
+      `"${name}" is no longer used by any problem. Delete the tag completely? Choosing Keep leaves it available for later use.`,
+      { title: "Delete unused tag?", confirmText: "Delete", cancelText: "Keep", danger: true }
+    );
+    if (!ok) return;
+    try {
+      const resp = await fetch(`${URL_PREFIX}/api/tags/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+    } catch (e) {
+      alertDialog(`Could not delete tag: ${e.message}`, { title: "Delete failed" });
+      return;
+    }
+    if (tagFilter.indexOf(name) !== -1) removeTagFilter(name);
+    await loadTags();
+  }
+
   function renderTagFilterChips() {
     if (!tagFilterChips) return;
     tagFilterChips.innerHTML = "";
@@ -470,7 +563,10 @@
   }
 
   async function deleteProblem(id, problemEl) {
-    if (!confirm("Delete this problem? This cannot be undone.")) return;
+    const ok = await confirmDialog("Delete this problem? This cannot be undone.", {
+      title: "Delete problem?", confirmText: "Delete", cancelText: "Cancel", danger: true,
+    });
+    if (!ok) return;
     const btn = problemEl.querySelector(".delete-btn");
     if (btn) btn.disabled = true;
     try {
@@ -478,7 +574,7 @@
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     } catch (e) {
       if (btn) btn.disabled = false;
-      alert(`Delete failed: ${e.message}`);
+      alertDialog(`Delete failed: ${e.message}`, { title: "Delete failed" });
       return;
     }
     await loadSummary();
@@ -530,8 +626,11 @@
       const problemEl = tagRemoveBtn.closest(".problem");
       const chip = tagRemoveBtn.closest(".tag-chip");
       if (problemEl && chip) {
-        const remaining = currentProblemTags(problemEl).filter(t => t !== chip.dataset.tag);
-        saveProblemTags(problemEl, remaining, null);
+        const removed = chip.dataset.tag;
+        const remaining = currentProblemTags(problemEl).filter(t => t !== removed);
+        saveProblemTags(problemEl, remaining, null).then(ok => {
+          if (ok) offerOrphanTagDeletion(removed);
+        });
       }
       return;
     }
@@ -1031,24 +1130,19 @@
   }
 
   function refreshSubexamSelect() {
-    // Populate the subexam dropdown from the currently selected exam.
-    // With no exam selected, show every distinct subexam across all exams.
+    // Populate the subexam dropdown from the currently selected exam. The
+    // subexam filter is only meaningful once a specific exam is chosen, so it
+    // stays hidden (and reset to All) while Exam is "All".
     if (!subexamSel) return;
-    const previousValue = subexamSel.value;
     const exam = examSel && examSel.value;
-    let options;
-    if (exam) {
-      options = (subexamMap[exam] || []).slice();
-    } else {
-      const seen = new Set();
-      options = [];
-      Object.values(subexamMap).forEach(list => {
-        list.forEach(s => {
-          if (!seen.has(s)) { seen.add(s); options.push(s); }
-        });
-      });
-      options.sort();
+    if (!exam) {
+      subexamSel.value = "";
+      if (subexamLabel) subexamLabel.hidden = true;
+      return;
     }
+    if (subexamLabel) subexamLabel.hidden = false;
+    const previousValue = subexamSel.value;
+    const options = (subexamMap[exam] || []).slice();
     subexamSel.innerHTML = `<option value="">All</option>`;
     options.forEach(s => {
       const opt = document.createElement("option");
@@ -1064,25 +1158,20 @@
   }
 
   function refreshSubcategorySelect() {
-    // Populate the subcategory filter dropdown based on the currently
-    // selected category. With no category selected, show every known
-    // subcategory across all categories.
+    // Populate the subcategory filter dropdown based on the currently selected
+    // category. The subcategory filter is only meaningful once a specific
+    // category is chosen, so it stays hidden (and reset to All) while
+    // Category is "All".
     if (!subSel) return;
-    const previousValue = subSel.value;
     const cat = catSel && catSel.value;
-    let options;
-    if (cat) {
-      options = (subcategoryMap[cat] || []).slice();
-    } else {
-      const seen = new Set();
-      options = [];
-      Object.values(subcategoryMap).forEach(list => {
-        list.forEach(s => {
-          if (!seen.has(s)) { seen.add(s); options.push(s); }
-        });
-      });
-      options.sort();
+    if (!cat) {
+      subSel.value = "";
+      if (subLabel) subLabel.hidden = true;
+      return;
     }
+    if (subLabel) subLabel.hidden = false;
+    const previousValue = subSel.value;
+    const options = (subcategoryMap[cat] || []).slice();
     subSel.innerHTML = `<option value="">All</option>`;
     options.forEach(s => {
       const opt = document.createElement("option");
@@ -1220,6 +1309,13 @@
     filtersEl.hidden = false;
     printBar.hidden = false;
     syncSlider();
+  }
+
+  if (filtersToggle) {
+    filtersToggle.addEventListener("click", () => {
+      const collapsed = filtersEl.classList.toggle("collapsed");
+      filtersToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    });
   }
 
   if (catSel) catSel.addEventListener("change", () => {

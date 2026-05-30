@@ -101,8 +101,10 @@ def stats_difficulty():
 @read_context
 def list_tags():
     """All registered tags with their comment and usage count — powers the
-    autocomplete hints when tagging a problem or entering a tag filter."""
-    return jsonify({"tags": storage.list_tags()})
+    autocomplete hints when tagging a problem or entering a tag filter. With
+    ?name=<tag>, returns just that one tag (for a single-tag usage re-check)."""
+    name = request.args.get("name") or None
+    return jsonify({"tags": storage.list_tags(name)})
 
 
 @bp.route("/tags", methods=["POST"])
@@ -120,6 +122,21 @@ def create_tag():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"tag": tag})
+
+
+@bp.route("/tags/<path:name>", methods=["DELETE"])
+@login_required
+@upload_allowed_required
+def delete_tag(name):
+    """Unregister a tag. Orphan-only: deleting a tag still applied to
+    problems is rejected (409) since it would just auto-resurrect."""
+    try:
+        deleted = storage.delete_tag(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+    if not deleted:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"deleted": storage.normalize_tag(name)})
 
 
 @bp.route("/summary", methods=["GET"])

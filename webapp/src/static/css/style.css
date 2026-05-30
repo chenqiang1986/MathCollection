@@ -115,6 +115,25 @@ form { padding: 1rem; border: 2px dashed #bbb; border-radius: 8px; margin: 1rem 
 }
 .filter-chip-remove:hover { color: #fff; }
 .tag-input { padding: 0.25rem 0.5rem; font-size: 0.9rem; min-width: 8rem; }
+
+/* App modal — promise-based alert()/confirm() replacement */
+.app-modal {
+  position: fixed; inset: 0; z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+}
+.app-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.app-modal-dialog {
+  position: relative; background: #fff; border-radius: 8px;
+  max-width: min(420px, 92vw); padding: 1.1rem 1.2rem;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+.app-modal-title { margin: 0 0 0.5rem; font-size: 1.05rem; }
+.app-modal-message { margin: 0 0 1rem; color: #333; line-height: 1.45; }
+.app-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.app-modal-actions button { padding: 0.35rem 0.9rem; font-size: 0.9rem; cursor: pointer; border-radius: 4px; }
+.app-modal-confirm { background: #06c; color: #fff; border: 1px solid #06c; }
+.app-modal-confirm.danger { background: #c33; border-color: #c33; }
+.app-modal-cancel { background: #fff; color: #555; border: 1px solid #ccc; }
 pre { white-space: pre-wrap; word-wrap: break-word; background: #f4f4f4; padding: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
 .rendered { background: #fff; padding: 0.5rem; border-radius: 4px; border: 1px solid #eee; white-space: pre-wrap; word-wrap: break-word; }
 .diagram { margin: 0.5rem 0; padding: 0.5rem; background: #fff; border: 1px solid #eee; border-radius: 4px; text-align: center; }
@@ -176,6 +195,15 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
 }
 .progress-text { font-size: 0.85rem; color: #555; margin-top: 0.25rem; }
 .filters { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; margin: 1rem 0 0.5rem; }
+.filters-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem; align-self: flex-start;
+  background: none; border: none; padding: 0.15rem 0; cursor: pointer;
+  font-size: 0.9rem; font-weight: 600; color: #444;
+}
+.filters-toggle-icon { transition: transform 0.15s ease; display: inline-block; }
+.filters.collapsed .filters-toggle-icon { transform: rotate(-90deg); }
+.filters.collapsed .filters-body { display: none; }
+.filters-body { display: flex; flex-direction: column; gap: 0.5rem; }
 .filter-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
 .filters label { font-size: 0.9rem; color: #555; }
 .filters select, .filters input[type=number] { padding: 0.25rem 0.5rem; font-size: 0.9rem; }
