@@ -407,3 +407,79 @@ def sample():
         p.to_dict() for p in (storage.get_problem(pid) for pid in ids) if p
     ]
     return jsonify({"problems": rows})
+
+
+@bp.route("/practice_sets", methods=["GET"])
+@login_required
+@upload_allowed_required
+def list_practice_sets():
+    return jsonify({"practice_sets": storage.list_practice_sets()})
+
+
+@bp.route("/practice_sets", methods=["POST"])
+@login_required
+@upload_allowed_required
+def create_practice_set():
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    try:
+        n = int(payload.get("n", DEFAULT_PAGE_SIZE))
+    except (TypeError, ValueError):
+        n = DEFAULT_PAGE_SIZE
+    n = max(1, min(MAX_SAMPLE_SIZE, n))
+    ids = storage.sample_index(n, **_parse_filters())
+    if not ids:
+        return jsonify({"error": "no problems match the current filters"}), 400
+    try:
+        practice_set = storage.create_practice_set(
+            ids, requested_count=n, name=name
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"practice_set": practice_set}), 201
+
+
+@bp.route("/practice_sets/<practice_set_id>", methods=["GET"])
+@login_required
+@upload_allowed_required
+def get_practice_set(practice_set_id):
+    practice_set = storage.get_practice_set(practice_set_id)
+    if not practice_set:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"practice_set": practice_set})
+
+
+@bp.route("/practice_sets/<practice_set_id>", methods=["DELETE"])
+@login_required
+@upload_allowed_required
+def delete_practice_set(practice_set_id):
+    if not storage.delete_practice_set(practice_set_id):
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"deleted": practice_set_id})
+
+
+@bp.route("/practice_sets/<practice_set_id>/problems", methods=["POST"])
+@login_required
+@upload_allowed_required
+def add_problem_to_practice_set(practice_set_id):
+    payload = request.get_json(silent=True) or {}
+    problem_id = (payload.get("problem_id") or "").strip()
+    if not problem_id:
+        return jsonify({"error": "problem_id is required"}), 400
+    try:
+        practice_set = storage.add_problem_to_practice_set(practice_set_id, problem_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    if not practice_set:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"practice_set": practice_set})
+
+
+@bp.route("/practice_sets/<practice_set_id>/problems/<problem_id>", methods=["DELETE"])
+@login_required
+@upload_allowed_required
+def remove_problem_from_practice_set(practice_set_id, problem_id):
+    practice_set = storage.remove_problem_from_practice_set(practice_set_id, problem_id)
+    if not practice_set:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"practice_set": practice_set})

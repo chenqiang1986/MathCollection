@@ -121,6 +121,34 @@ CREATE TABLE IF NOT EXISTS raw_files (
 );
 CREATE INDEX IF NOT EXISTS idx_status_queued ON raw_files(user_id, status, queued_at);
 
+-- practice_sets: authoritative saved selections of problems for printing and
+-- later manual curation. Unlike `problems`, these rows are not derivable from
+-- JSON and must persist across deploys/backfills.
+CREATE TABLE IF NOT EXISTS practice_sets (
+    user_id TEXT NOT NULL,
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    requested_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+ALTER TABLE practice_sets ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_practice_sets_user_id_id ON practice_sets(user_id, id);
+CREATE INDEX IF NOT EXISTS idx_practice_sets_user_updated ON practice_sets(user_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS practice_set_problems (
+    user_id TEXT NOT NULL,
+    practice_set_id TEXT NOT NULL,
+    problem_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (practice_set_id, problem_id)
+);
+CREATE INDEX IF NOT EXISTS idx_practice_set_problems_user_set
+    ON practice_set_problems(user_id, practice_set_id, position, added_at);
+CREATE INDEX IF NOT EXISTS idx_practice_set_problems_user_problem
+    ON practice_set_problems(user_id, problem_id);
+
 -- Bump this literal whenever a new ALTER above changes the row shape. The next
 -- init_user() detects DATA_VERSION < SCHEMA_VERSION per user and re-backfills.
-UPDATE schema_version SET schema_version = 1;
+UPDATE schema_version SET schema_version = 3;

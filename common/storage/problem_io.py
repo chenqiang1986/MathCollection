@@ -97,6 +97,10 @@ def delete_problem(problem_id: str) -> bool:
             "DELETE FROM problem_tags WHERE user_id = %s AND problem_id = %s",
             (user, problem_id),
         )
+        conn.execute(
+            "DELETE FROM practice_set_problems WHERE user_id = %s AND problem_id = %s",
+            (user, problem_id),
+        )
     return problem is not None or deleted_rows > 0
 
 

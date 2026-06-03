@@ -14,9 +14,19 @@
     ignoredTags: ["script", "noscript", "style", "textarea", "code"]
   };
 
-  function renderMath(el) {
+  const PREVIEW_KATEX_OPTS = {
+    ...KATEX_OPTS,
+    delimiters: [
+      { left: "$$", right: "$$", display: false },
+      { left: "\\[", right: "\\]", display: false },
+      { left: "$", right: "$", display: false },
+      { left: "\\(", right: "\\)", display: false }
+    ]
+  };
+
+  function renderMath(el, opts = KATEX_OPTS) {
     if (window.renderMathInElement) {
-      window.renderMathInElement(el, KATEX_OPTS);
+      window.renderMathInElement(el, opts);
     }
   }
 
@@ -34,7 +44,7 @@
 
   const filtersEl = document.getElementById("filters");
   const filtersToggle = document.getElementById("filters-toggle");
-  const printBar = document.getElementById("print-bar");
+  const practiceBar = document.getElementById("practice-bar");
   const minInput = document.getElementById("filter-time-min");
   const maxInput = document.getElementById("filter-time-max");
   const sliderEl = document.querySelector(".range-slider");
@@ -47,6 +57,21 @@
   const pagePrev = document.getElementById("page-prev");
   const pageNext = document.getElementById("page-next");
   const pageInfoEl = document.getElementById("page-info");
+  const practiceSetSelect = document.getElementById("practice-set-select");
+  const practicePrintBtn = document.getElementById("practice-print-btn");
+  const practiceStatus = document.getElementById("practice-status");
+  const practiceSetPanel = document.getElementById("practice-set-panel");
+  const practiceSetTitle = document.getElementById("practice-set-title");
+  const practiceSetMeta = document.getElementById("practice-set-meta");
+  const practiceSetList = document.getElementById("practice-set-list");
+  const practiceDeleteBtn = document.getElementById("practice-delete-btn");
+  const printHeaderTitle = document.getElementById("print-header-title");
+  const practiceCreateModal = document.getElementById("practice-create-modal");
+  const practiceCreateNameInput = document.getElementById("practice-create-name");
+  const practiceCreateCountInput = document.getElementById("practice-create-count");
+  const practiceCreateSubmit = document.getElementById("practice-create-submit");
+  const practiceCreateCancel = document.getElementById("practice-create-cancel");
+  const practiceCreateError = document.getElementById("practice-create-error");
 
   let sliderMax = 60;
   let currentPage = 1;
@@ -66,6 +91,10 @@
   // datalist, plus a name→comment map for fast tooltip lookups.
   let knownTags = [];
   let tagCommentMap = {};
+  let practiceSets = [];
+  let activePracticeSet = null;
+  let activePracticeProblemIds = new Set();
+  const PRACTICE_CREATE_SENTINEL = "__create_new__";
 
   function escapeHtml(s) {
     return String(s == null ? "" : s)
@@ -131,6 +160,29 @@
     return String(s || "").replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  function formatDateTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
+      return String(iso).slice(0, 19).replace("T", " ");
+    }
+    return d.toLocaleString();
+  }
+
+  function pluralize(count, noun) {
+    return `${count} ${noun}${count === 1 ? "" : "s"}`;
+  }
+
+  function compactText(s, maxLen) {
+    const clean = String(s || "").replace(/\s+/g, " ").trim();
+    if (clean.length <= maxLen) return clean;
+    return clean.slice(0, Math.max(0, maxLen - 3)).trimEnd() + "...";
+  }
+
+  function practiceSetName(set) {
+    return String((set && set.name) || "").trim() || "Untitled practice set";
+  }
+
   function difficultyLabel(p) {
     const real = p.solve_time_seconds;
     const est = p.solve_time_estimated;
@@ -159,6 +211,7 @@
     const subRaw = p.subcategory || "";
     const catPart = titleCase(catRaw);
     const subPart = titleCase(subRaw);
+    const inPracticeSet = activePracticeProblemIds.has(p.id);
     const editAttrs = CAN_UPLOAD ? ' class="editable" title="Double-click to edit"' : "";
     const catSpan = `<span data-field="category" data-value="${escapeHtml(catRaw)}"${editAttrs}>` +
       `${escapeHtml(catPart) || "(uncategorized)"}</span>`;
@@ -172,8 +225,15 @@
     }
     const heading = catSpan + subSpan + (dlabel ? ` &middot; ${escapeHtml(dlabel)}` : "");
 
+    const practiceButton = CAN_UPLOAD && activePracticeSet
+      ? `<button type="button" class="${inPracticeSet ? "practice-remove-btn" : "practice-add-btn"}" ` +
+        `title="${inPracticeSet ? "Remove from active practice set" : "Add to active practice set"}" ` +
+        `aria-label="${inPracticeSet ? "Remove from active practice set" : "Add to active practice set"}">` +
+        `${inPracticeSet ? "Set -" : "Set +"}</button>`
+      : "";
     const actionButtons = CAN_UPLOAD
-      ? `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
+      ? practiceButton +
+        `<button type="button" class="refine-btn" title="${p.solution ? 'Refine solution with a hint' : 'Generate solution with a hint'}" aria-label="Refine solution">✨</button>` +
         `<button type="button" class="delete-btn" title="Delete this problem" aria-label="Delete this problem">🗑</button>`
       : "";
 
@@ -225,6 +285,7 @@
       `</div>`;
     }
     div.innerHTML = html;
+    if (inPracticeSet) div.classList.add("in-practice-set");
     return div;
   }
 
@@ -290,6 +351,7 @@
     }
     if (data.problem) {
       (data.problem.tags || []).forEach(t => recordKnownTag(t, tagComment(t)));
+      syncActivePracticeSetProblem(data.problem);
       const fresh = renderProblem(data.problem);
       problemEl.replaceWith(fresh);
       renderMath(fresh);
@@ -663,6 +725,329 @@
     return params;
   }
 
+  function practiceSetSummary(detail) {
+    return detail
+      ? {
+          id: detail.id,
+          name: detail.name || "",
+          requested_count: detail.requested_count || 0,
+          problem_count: detail.problem_count || 0,
+          created_at: detail.created_at || "",
+          updated_at: detail.updated_at || "",
+        }
+      : null;
+  }
+
+  function practiceSetLabel(set) {
+    const stamp = formatDateTime(set.updated_at || set.created_at);
+    return `${practiceSetName(set)} · ${pluralize(set.problem_count || 0, "problem")} · ${stamp}`;
+  }
+
+  function populatePracticeSetOptions() {
+    if (!practiceSetSelect) return;
+    const selectedId = activePracticeSet ? activePracticeSet.id : "";
+    practiceSetSelect.innerHTML = `<option value="">Select a practice set...</option>`;
+    practiceSets.forEach(set => {
+      const opt = document.createElement("option");
+      opt.value = set.id;
+      opt.textContent = practiceSetLabel(set);
+      if (set.id === selectedId) opt.selected = true;
+      practiceSetSelect.appendChild(opt);
+    });
+    practiceSetSelect.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${PRACTICE_CREATE_SENTINEL}">Create a new set...</option>`
+    );
+  }
+
+  function upsertPracticeSetSummary(detail) {
+    const summary = practiceSetSummary(detail);
+    if (!summary) return;
+    const idx = practiceSets.findIndex(set => set.id === summary.id);
+    if (idx >= 0) {
+      practiceSets[idx] = summary;
+    } else {
+      practiceSets.push(summary);
+    }
+    practiceSets.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    populatePracticeSetOptions();
+  }
+
+  function removePracticeSetSummary(practiceSetId) {
+    practiceSets = practiceSets.filter(set => set.id !== practiceSetId);
+    populatePracticeSetOptions();
+  }
+
+  function renderPracticeSetPanel() {
+    if (!practiceSetPanel || !practiceSetList || !practiceSetTitle || !practiceSetMeta) return;
+    if (!activePracticeSet) {
+      practiceSetPanel.hidden = true;
+      practiceSetList.innerHTML = "";
+      if (practicePrintBtn) practicePrintBtn.disabled = true;
+      if (practiceDeleteBtn) practiceDeleteBtn.disabled = true;
+      if (printHeaderTitle) printHeaderTitle.textContent = "Math Practice Set";
+      return;
+    }
+
+    practiceSetPanel.hidden = false;
+    if (practicePrintBtn) {
+      practicePrintBtn.disabled = !(activePracticeSet.problems || []).length;
+    }
+    if (practiceDeleteBtn) practiceDeleteBtn.disabled = false;
+    practiceSetTitle.textContent = practiceSetName(activePracticeSet);
+    practiceSetMeta.textContent =
+      `${pluralize(activePracticeSet.problem_count || 0, "problem")} · ` +
+      `created ${formatDateTime(activePracticeSet.created_at)}`;
+    if (printHeaderTitle) {
+      printHeaderTitle.textContent = `${practiceSetName(activePracticeSet)} (${activePracticeSet.problem_count || 0})`;
+    }
+
+    if (!(activePracticeSet.problems || []).length) {
+      practiceSetList.innerHTML = `<p><em>This practice set is empty. Add problems from the list below.</em></p>`;
+      return;
+    }
+
+    practiceSetList.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    activePracticeSet.problems.forEach((problem, idx) => {
+      const row = document.createElement("div");
+      row.className = "practice-set-item";
+      row.dataset.problemId = problem.id;
+      const metaBits = [];
+      if (problem.category) metaBits.push(titleCase(problem.category));
+      if (problem.subcategory) metaBits.push(titleCase(problem.subcategory));
+      const sourceBits = [problem.year, problem.source_exam, problem.subexam]
+        .filter(v => v && v !== "Unknown");
+      if (sourceBits.length) metaBits.push(sourceBits.join(" · "));
+      row.innerHTML =
+        `<div class="practice-set-item-main">` +
+          `<div class="practice-set-item-heading">${idx + 1}. ${escapeHtml(metaBits.join(" - ")) || "Problem"}</div>` +
+          `<div class="practice-set-item-text">${escapeHtml(compactText(problem.problem_text, 180))}</div>` +
+        `</div>` +
+        `<button type="button" class="practice-set-remove" aria-label="Remove problem from practice set">Remove</button>`;
+      frag.appendChild(row);
+    });
+    practiceSetList.appendChild(frag);
+    renderMath(practiceSetList, PREVIEW_KATEX_OPTS);
+  }
+
+  function setActivePracticeSet(detail) {
+    activePracticeSet = detail;
+    activePracticeProblemIds = new Set((detail && detail.problem_ids) || []);
+    populatePracticeSetOptions();
+    renderPracticeSetPanel();
+  }
+
+  function clearActivePracticeSet() {
+    setActivePracticeSet(null);
+    if (practiceSetSelect) practiceSetSelect.value = "";
+  }
+
+  function restorePracticeSetSelection() {
+    if (!practiceSetSelect) return;
+    practiceSetSelect.value = activePracticeSet ? activePracticeSet.id : "";
+  }
+
+  function syncActivePracticeSetProblem(problem) {
+    if (!activePracticeSet || !problem || !activePracticeProblemIds.has(problem.id)) return;
+    const nextProblems = (activePracticeSet.problems || []).map(p => p.id === problem.id ? problem : p);
+    activePracticeSet = { ...activePracticeSet, problems: nextProblems };
+    renderPracticeSetPanel();
+  }
+
+  async function fetchPracticeSet(practiceSetId) {
+    const resp = await fetch(`${URL_PREFIX}/api/practice_sets/${encodeURIComponent(practiceSetId)}`);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err && err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await resp.json();
+    return data.practice_set;
+  }
+
+  async function loadPracticeSets() {
+    if (!CAN_UPLOAD || !practiceSetSelect) return;
+    const resp = await fetch(`${URL_PREFIX}/api/practice_sets`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    practiceSets = data.practice_sets || [];
+    populatePracticeSetOptions();
+  }
+
+  async function selectPracticeSet(practiceSetId, opts = {}) {
+    const reloadPage = opts.reloadPage !== false;
+    if (!practiceSetId) {
+      clearActivePracticeSet();
+      if (reloadPage) await loadPage();
+      return;
+    }
+    const detail = await fetchPracticeSet(practiceSetId);
+    upsertPracticeSetSummary(detail);
+    setActivePracticeSet(detail);
+    if (reloadPage) await loadPage();
+  }
+
+  async function refreshActivePracticeSet(opts = {}) {
+    if (!activePracticeSet || !activePracticeSet.id) return;
+    await selectPracticeSet(activePracticeSet.id, opts);
+  }
+
+  async function mutatePracticeSet(url, options) {
+    const resp = await fetch(url, options);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err && err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    return resp.status === 204 ? {} : await resp.json();
+  }
+
+  async function createPracticeSetFromFilters(name, count) {
+    let n = parseInt(count, 10);
+    if (isNaN(n) || n < 1) n = 1;
+    if (practiceStatus) practiceStatus.textContent = "Creating practice set...";
+    try {
+      const params = currentFilterParams();
+      const data = await mutatePracticeSet(
+        `${URL_PREFIX}/api/practice_sets?${params.toString()}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ n, name }),
+        }
+      );
+      upsertPracticeSetSummary(data.practice_set);
+      setActivePracticeSet(data.practice_set);
+      await loadPage();
+      if (practiceStatus) {
+        practiceStatus.textContent = `Created ${pluralize(data.practice_set.problem_count || 0, "problem")}.`;
+      }
+    } catch (e) {
+      if (practiceStatus) practiceStatus.textContent = `Create failed: ${e.message}`;
+      throw e;
+    }
+  }
+
+  function closePracticeCreateModal(force) {
+    if (!practiceCreateModal) return;
+    if (!force && practiceCreateSubmit && practiceCreateSubmit.disabled) return;
+    practiceCreateModal.hidden = true;
+    if (practiceCreateError) practiceCreateError.textContent = "";
+    restorePracticeSetSelection();
+  }
+
+  function openPracticeCreateModal() {
+    if (!practiceCreateModal) return;
+    practiceCreateModal.hidden = false;
+    restorePracticeSetSelection();
+    if (practiceCreateError) practiceCreateError.textContent = "";
+    if (practiceCreateNameInput) practiceCreateNameInput.value = "";
+    if (practiceCreateCountInput && !practiceCreateCountInput.value) {
+      practiceCreateCountInput.value = "5";
+    }
+    if (practiceCreateNameInput) practiceCreateNameInput.focus();
+  }
+
+  async function submitPracticeCreateModal() {
+    if (!practiceCreateNameInput || !practiceCreateCountInput || !practiceCreateSubmit) return;
+    const name = (practiceCreateNameInput.value || "").trim().replace(/\s+/g, " ");
+    let count = parseInt(practiceCreateCountInput.value, 10);
+    if (!name) {
+      if (practiceCreateError) practiceCreateError.textContent = "Set name is required.";
+      practiceCreateNameInput.focus();
+      return;
+    }
+    if (isNaN(count) || count < 1) {
+      count = 1;
+      practiceCreateCountInput.value = "1";
+    }
+
+    practiceCreateSubmit.disabled = true;
+    if (practiceCreateCancel) practiceCreateCancel.disabled = true;
+    practiceCreateNameInput.disabled = true;
+    practiceCreateCountInput.disabled = true;
+    if (practiceCreateError) practiceCreateError.textContent = "";
+    try {
+      await createPracticeSetFromFilters(name, count);
+      closePracticeCreateModal(true);
+    } catch (e) {
+      if (practiceCreateError) practiceCreateError.textContent = e.message;
+    } finally {
+      practiceCreateSubmit.disabled = false;
+      if (practiceCreateCancel) practiceCreateCancel.disabled = false;
+      practiceCreateNameInput.disabled = false;
+      practiceCreateCountInput.disabled = false;
+    }
+  }
+
+  async function updatePracticeSetMembership(problemId, shouldAdd) {
+    if (!activePracticeSet) {
+      await alertDialog("Create or select a practice set first.", { title: "No active practice set" });
+      return;
+    }
+    if (practiceStatus) {
+      practiceStatus.textContent = shouldAdd ? "Adding problem..." : "Removing problem...";
+    }
+    try {
+      const data = shouldAdd
+        ? await mutatePracticeSet(
+            `${URL_PREFIX}/api/practice_sets/${encodeURIComponent(activePracticeSet.id)}/problems`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ problem_id: problemId }),
+            }
+          )
+        : await mutatePracticeSet(
+            `${URL_PREFIX}/api/practice_sets/${encodeURIComponent(activePracticeSet.id)}/problems/${encodeURIComponent(problemId)}`,
+            { method: "DELETE" }
+          );
+      upsertPracticeSetSummary(data.practice_set);
+      setActivePracticeSet(data.practice_set);
+      await loadPage();
+      if (practiceStatus) {
+        practiceStatus.textContent = shouldAdd ? "Problem added." : "Problem removed.";
+      }
+    } catch (e) {
+      if (practiceStatus) {
+        practiceStatus.textContent = `${shouldAdd ? "Add" : "Remove"} failed: ${e.message}`;
+      }
+    }
+  }
+
+  async function deleteActivePracticeSet() {
+    if (!activePracticeSet) return;
+    const ok = await confirmDialog("Delete this practice set? Its saved selection will be lost.", {
+      title: "Delete practice set?",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      danger: true,
+    });
+    if (!ok) return;
+    if (practiceDeleteBtn) practiceDeleteBtn.disabled = true;
+    try {
+      await mutatePracticeSet(
+        `${URL_PREFIX}/api/practice_sets/${encodeURIComponent(activePracticeSet.id)}`,
+        { method: "DELETE" }
+      );
+      const deletedId = activePracticeSet.id;
+      clearActivePracticeSet();
+      removePracticeSetSummary(deletedId);
+      await loadPage();
+      if (practiceStatus) practiceStatus.textContent = "Practice set deleted.";
+    } catch (e) {
+      if (practiceStatus) practiceStatus.textContent = `Delete failed: ${e.message}`;
+      if (practiceDeleteBtn) practiceDeleteBtn.disabled = false;
+    }
+  }
+
   function syncSlider() {
     if (!minInput || !maxInput) return;
     let lo = parseFloat(minInput.value);
@@ -757,6 +1142,13 @@
       alertDialog(`Delete failed: ${e.message}`, { title: "Delete failed" });
       return;
     }
+    if (activePracticeSet && activePracticeProblemIds.has(id)) {
+      try {
+        await refreshActivePracticeSet({ reloadPage: false });
+      } catch (_) {
+        clearActivePracticeSet();
+      }
+    }
     await loadSummary();
     await loadPage();
   }
@@ -797,6 +1189,22 @@
       const problemEl = submitBtn.closest(".problem");
       if (problemEl && problemEl.dataset.id) {
         refineProblem(problemEl.dataset.id, problemEl);
+      }
+      return;
+    }
+    const practiceAddBtn = ev.target.closest(".practice-add-btn");
+    if (practiceAddBtn) {
+      const problemEl = practiceAddBtn.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        updatePracticeSetMembership(problemEl.dataset.id, true);
+      }
+      return;
+    }
+    const practiceRemoveBtn = ev.target.closest(".practice-remove-btn");
+    if (practiceRemoveBtn) {
+      const problemEl = practiceRemoveBtn.closest(".problem");
+      if (problemEl && problemEl.dataset.id) {
+        updatePracticeSetMembership(problemEl.dataset.id, false);
       }
       return;
     }
@@ -1079,6 +1487,7 @@
         }
         const data = await resp.json();
         if (data.problem) {
+          syncActivePracticeSetProblem(data.problem);
           const fresh = renderProblem(data.problem);
           problemEl.replaceWith(fresh);
           renderMath(fresh);
@@ -1206,6 +1615,7 @@
           refreshCategoryDatalist();
           refreshSubcategoryDatalist();
           catFilter.build();
+          syncActivePracticeSetProblem(data.problem);
           const fresh = renderProblem(data.problem);
           problemEl.replaceWith(fresh);
           renderMath(fresh);
@@ -1353,6 +1763,7 @@
     }
 
     if (data.problem) {
+      syncActivePracticeSetProblem(data.problem);
       const fresh = renderProblem(data.problem);
       problemEl.replaceWith(fresh);
       renderMath(fresh);
@@ -1384,13 +1795,15 @@
       summary = await resp.json();
     } catch (e) {
       filtersEl.hidden = true;
-      printBar.hidden = true;
+      if (practiceBar) practiceBar.hidden = true;
+      clearActivePracticeSet();
       return;
     }
 
     if (summary.total === 0) {
       filtersEl.hidden = true;
-      printBar.hidden = true;
+      if (practiceBar) practiceBar.hidden = true;
+      clearActivePracticeSet();
       if (totalCountEl) totalCountEl.textContent = "0";
       return;
     }
@@ -1422,7 +1835,7 @@
     figureFilter.build();
 
     filtersEl.hidden = false;
-    printBar.hidden = false;
+    if (practiceBar) practiceBar.hidden = false;
     syncSlider();
   }
 
@@ -1453,62 +1866,159 @@
     }
   });
 
-  // Print as PDF: backend samples N matching problems across the full filtered
-  // set (not just the current page), renders them off-screen, then prints.
+  // Practice sets are persisted on the backend. We render the active one into
+  // the hidden print container and let the browser handle print-to-PDF.
   const printContainer = document.getElementById("print-container");
-  const printBtn = document.getElementById("print-btn");
-  const printCountInput = document.getElementById("print-count");
-  const printStatus = document.getElementById("print-status");
 
   function clearPrintSelection() {
     document.body.classList.remove("printing");
     printContainer.innerHTML = "";
   }
 
-  if (printBtn) {
-    printBtn.addEventListener("click", async function () {
-      let n = parseInt(printCountInput.value, 10);
-      if (isNaN(n) || n < 1) n = 1;
-      printStatus.textContent = "Sampling…";
-      const params = currentFilterParams();
-      params.set("n", String(n));
-      let data;
-      try {
-        const resp = await fetch(`${URL_PREFIX}/api/sample?${params.toString()}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        data = await resp.json();
-      } catch (e) {
-        printStatus.textContent = `Sample failed: ${e.message}`;
+  function waitForImages(root, timeoutMs = 5000) {
+    const images = Array.from((root || document).querySelectorAll("img"));
+    return Promise.all(images.map(img => new Promise(resolve => {
+      if (!img.currentSrc && !img.src) {
+        resolve();
         return;
       }
-      if (!data.problems || !data.problems.length) {
-        printStatus.textContent = "No problems match the current filters.";
+      if (img.complete) {
+        resolve();
         return;
       }
-
-      printContainer.innerHTML = "";
-      data.problems.forEach(p => {
-        const el = renderProblem(p);
-        el.classList.add("print-selected");
-        printContainer.appendChild(el);
-      });
-      renderMath(printContainer);
-
-      printStatus.textContent = `Printing ${data.problems.length} problem(s)…`;
-      document.body.classList.add("printing");
-      const cleanup = () => {
-        clearPrintSelection();
-        printStatus.textContent = "";
-        window.removeEventListener("afterprint", cleanup);
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        img.removeEventListener("load", done);
+        img.removeEventListener("error", done);
+        resolve();
       };
-      window.addEventListener("afterprint", cleanup);
-      // Give the browser a tick to lay out KaTeX before opening print dialog.
-      setTimeout(() => window.print(), 50);
+      const timer = setTimeout(done, timeoutMs);
+      img.addEventListener("load", done, { once: true });
+      img.addEventListener("error", done, { once: true });
+    })));
+  }
+
+  function nextFrame() {
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+  }
+
+  if (practiceSetSelect) {
+    practiceSetSelect.addEventListener("change", async function () {
+      if (practiceStatus) practiceStatus.textContent = "";
+      if (practiceSetSelect.value === PRACTICE_CREATE_SENTINEL) {
+        openPracticeCreateModal();
+        return;
+      }
+      try {
+        await selectPracticeSet(practiceSetSelect.value);
+      } catch (e) {
+        if (practiceStatus) practiceStatus.textContent = `Load failed: ${e.message}`;
+      }
+    });
+  }
+
+  if (practiceCreateCancel) {
+    practiceCreateCancel.addEventListener("click", closePracticeCreateModal);
+  }
+
+  if (practiceCreateSubmit) {
+    practiceCreateSubmit.addEventListener("click", submitPracticeCreateModal);
+  }
+
+  if (practiceCreateModal) {
+    const backdrop = practiceCreateModal.querySelector(".app-modal-backdrop");
+    if (backdrop) backdrop.addEventListener("click", closePracticeCreateModal);
+    practiceCreateModal.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closePracticeCreateModal();
+      } else if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") {
+        ev.preventDefault();
+        submitPracticeCreateModal();
+      }
+    });
+  }
+
+  if (practiceSetList) {
+    practiceSetList.addEventListener("click", function (ev) {
+      const removeBtn = ev.target.closest(".practice-set-remove");
+      const item = removeBtn && removeBtn.closest(".practice-set-item");
+      if (removeBtn && item && item.dataset.problemId) {
+        updatePracticeSetMembership(item.dataset.problemId, false);
+      }
+    });
+  }
+
+  if (practiceDeleteBtn) {
+    practiceDeleteBtn.addEventListener("click", deleteActivePracticeSet);
+  }
+
+  if (practicePrintBtn) {
+    practicePrintBtn.addEventListener("click", async function () {
+      if (!activePracticeSet || !activePracticeSet.problems || !activePracticeSet.problems.length) {
+        if (practiceStatus) practiceStatus.textContent = "No problems in the active practice set.";
+        return;
+      }
+      practicePrintBtn.disabled = true;
+      try {
+        if (practiceStatus) practiceStatus.textContent = "Preparing practice set for print...";
+        const freshPracticeSet = activePracticeSet.id
+          ? await fetchPracticeSet(activePracticeSet.id)
+          : activePracticeSet;
+        upsertPracticeSetSummary(freshPracticeSet);
+        setActivePracticeSet(freshPracticeSet);
+        practicePrintBtn.disabled = true;
+
+        const problems = freshPracticeSet.problems || [];
+        if (!problems.length) {
+          if (practiceStatus) practiceStatus.textContent = "No problems in the active practice set.";
+          practicePrintBtn.disabled = false;
+          return;
+        }
+
+        printContainer.innerHTML = "";
+        problems.forEach(p => {
+          const el = renderProblem(p);
+          el.classList.add("print-selected");
+          printContainer.appendChild(el);
+        });
+        renderMath(printContainer);
+        await waitForImages(printContainer);
+        await nextFrame();
+        await nextFrame();
+
+        if (practiceStatus) {
+          practiceStatus.textContent = `Printing ${pluralize(problems.length, "problem")}...`;
+        }
+        document.body.classList.add("printing");
+        const cleanup = () => {
+          clearPrintSelection();
+          if (practiceStatus) practiceStatus.textContent = "";
+          practicePrintBtn.disabled = !activePracticeSet || !(activePracticeSet.problems || []).length;
+          window.removeEventListener("afterprint", cleanup);
+        };
+        window.addEventListener("afterprint", cleanup);
+        setTimeout(() => window.print(), 0);
+      } catch (e) {
+        clearPrintSelection();
+        if (practiceStatus) practiceStatus.textContent = `Print failed: ${e.message}`;
+        practicePrintBtn.disabled = !activePracticeSet || !(activePracticeSet.problems || []).length;
+      }
     });
   }
 
   document.addEventListener("DOMContentLoaded", async function () {
     await Promise.all([loadSummary(), loadTags()]);
+    if (CAN_UPLOAD) {
+      try {
+        await loadPracticeSets();
+      } catch (e) {
+        if (practiceStatus) practiceStatus.textContent = `Practice sets unavailable: ${e.message}`;
+      }
+    }
     await loadPage();
   });
 })();

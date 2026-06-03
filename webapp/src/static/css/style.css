@@ -11,16 +11,32 @@ h1 { margin-bottom: 0.25rem; }
 .sub { color: #666; margin-top: 0; }
 form { padding: 1rem; border: 2px dashed #bbb; border-radius: 8px; margin: 1rem 0; }
 .problem { position: relative; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; margin: 0.75rem 0; background: #fafafa; }
+.problem.in-practice-set { border-color: #8bb4e8; box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.08); }
+.problem .practice-add-btn,
+.problem .practice-remove-btn,
 .problem .delete-btn {
   position: absolute; top: 0.5rem; right: 0.5rem;
   background: transparent; border: 1px solid transparent; color: #888;
   font-size: 1rem; line-height: 1; padding: 4px 6px; border-radius: 4px;
   cursor: pointer;
 }
+.problem .practice-add-btn,
+.problem .practice-remove-btn {
+  right: 4rem;
+  font-size: 0.8rem;
+  line-height: 1.1;
+  color: #06c;
+  border-color: #cde;
+  background: #f3f8ff;
+}
+.problem .practice-add-btn:hover,
+.problem .practice-remove-btn:hover { background: #e6f0ff; border-color: #8bb4e8; }
+.problem .practice-remove-btn { color: #8a4b00; background: #fff7eb; border-color: #f2d1a6; }
+.problem .practice-remove-btn:hover { background: #ffefd8; border-color: #d8a25e; }
 .problem .delete-btn:hover { color: #c00; border-color: #fbb; background: #fff5f5; }
 .problem .delete-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 .problem .refine-btn {
-  position: absolute; top: 0.5rem; right: 2.25rem;
+  position: absolute; top: 0.5rem; right: 2.2rem;
   background: transparent; border: 1px solid transparent; color: #888;
   font-size: 1rem; line-height: 1; padding: 4px 6px; border-radius: 4px;
   cursor: pointer;
@@ -149,6 +165,7 @@ form { padding: 1rem; border: 2px dashed #bbb; border-radius: 8px; margin: 1rem 
   position: fixed; inset: 0; z-index: 1100;
   display: flex; align-items: center; justify-content: center;
 }
+.app-modal[hidden] { display: none; }
 .app-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
 .app-modal-dialog {
   position: relative; background: #fff; border-radius: 8px;
@@ -291,6 +308,7 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
 .filters label { font-size: 0.9rem; color: #555; }
 .filters select, .filters input[type=number] { padding: 0.25rem 0.5rem; font-size: 0.9rem; }
 .filters input[type=number] { width: 4.5rem; }
+.filters select { min-width: 13rem; }
 .range-label { display: inline-flex; align-items: center; gap: 0.5rem; }
 .range-slider { position: relative; width: 180px; height: 24px; }
 .range-slider .range-track {
@@ -321,6 +339,95 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
 }
 .range-display { font-size: 0.85rem; color: #555; min-width: 6rem; }
 .problem.hidden { display: none; }
+
+.practice-set-panel {
+  margin: 1rem 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid #cde;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+}
+.practice-set-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.practice-set-header h3 { margin: 0 0 0.25rem; }
+.practice-set-actions button {
+  padding: 0.35rem 0.8rem;
+  border-radius: 4px;
+  border: 1px solid #d9b4b4;
+  background: #fff5f5;
+  color: #933;
+  cursor: pointer;
+}
+.practice-set-hint { margin: 0.5rem 0 0.85rem; color: #555; font-size: 0.9rem; }
+.practice-set-list { display: flex; flex-direction: column; gap: 0.55rem; }
+.practice-set-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #fff;
+}
+.practice-set-item-main { min-width: 0; }
+.practice-set-item-heading {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #345;
+  margin-bottom: 0.2rem;
+}
+.practice-set-item-text { color: #334; font-size: 0.92rem; }
+.practice-set-remove {
+  white-space: nowrap;
+  padding: 0.3rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #d9b4b4;
+  background: #fff5f5;
+  color: #933;
+  cursor: pointer;
+}
+.practice-create-dialog { width: min(420px, 92vw); }
+.practice-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.8rem;
+  color: #444;
+  font-size: 0.9rem;
+}
+.practice-create-field input {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+#practice-create-error {
+  margin: 0.75rem 0 0;
+  min-height: 1.2rem;
+}
+
+@media (max-width: 700px) {
+  .practice-set-header,
+  .practice-set-item {
+    flex-direction: column;
+  }
+  .problem .practice-add-btn,
+  .problem .practice-remove-btn {
+    position: static;
+    display: inline-block;
+    margin: 0 0 0.5rem;
+  }
+  .problem .refine-btn,
+  .problem .delete-btn {
+    top: 0.4rem;
+  }
+}
 
 .pagination { display: flex; gap: 0.5rem; align-items: center; justify-content: center; margin: 1rem 0; }
 .pagination button { padding: 0.25rem 0.75rem; font-size: 0.9rem; cursor: pointer; }
@@ -367,6 +474,8 @@ button[disabled] { opacity: 0.6; cursor: not-allowed; }
     font-weight: bold;
   }
   #print-container > .problem .delete-btn { display: none !important; }
+  #print-container > .problem .practice-add-btn { display: none !important; }
+  #print-container > .problem .practice-remove-btn { display: none !important; }
   #print-container > .problem .refine-btn { display: none !important; }
   #print-container > .problem .refine-panel { display: none !important; }
   #print-container > .problem details { display: none !important; }

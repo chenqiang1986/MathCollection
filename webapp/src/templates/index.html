@@ -123,18 +123,36 @@
     </div>
     </div>
   </div>
-  <div class="filters" id="print-bar" hidden>
+  {% if can_upload %}
+  <div class="filters" id="practice-bar" hidden>
     <div class="filter-row">
-      <label>Print random
-        <input type="number" id="print-count" min="1" value="5">
+      <label>Saved practice sets
+        <select id="practice-set-select">
+          <option value="">Select a practice set...</option>
+        </select>
       </label>
-      <button type="button" id="print-btn">Print as PDF</button>
-      <span id="print-status" class="progress-text"></span>
+      <button type="button" id="practice-print-btn" disabled>Print active set</button>
+      <span id="practice-status" class="progress-text"></span>
     </div>
   </div>
 
+  <section id="practice-set-panel" class="practice-set-panel" hidden>
+    <div class="practice-set-header">
+      <div>
+        <h3 id="practice-set-title">Practice set</h3>
+        <p id="practice-set-meta" class="progress-text"></p>
+      </div>
+      <div class="practice-set-actions">
+        <button type="button" id="practice-delete-btn">Delete set</button>
+      </div>
+    </div>
+    <p class="practice-set-hint">Browse with filters, then add or remove problems from the active set before printing.</p>
+    <div id="practice-set-list" class="practice-set-list"></div>
+  </section>
+  {% endif %}
+
   <div id="print-header">
-    <h2 style="margin:0">Math Problem Set</h2>
+    <h2 id="print-header-title" style="margin:0">Math Practice Set</h2>
   </div>
 
   <div id="problem-list">
@@ -151,6 +169,29 @@
   <datalist id="all-categories"></datalist>
   <datalist id="all-subcategories"></datalist>
   <datalist id="all-tags"></datalist>
+
+  {% if can_upload %}
+  <div id="practice-create-modal" class="app-modal" hidden>
+    <div class="app-modal-backdrop"></div>
+    <div class="app-modal-dialog practice-create-dialog" role="dialog" aria-modal="true" aria-labelledby="practice-create-title">
+      <h3 id="practice-create-title" class="app-modal-title">Create Practice Set</h3>
+      <p class="app-modal-message">Pick how many filtered problems to sample, then give the set a name.</p>
+      <label class="practice-create-field">
+        <span>Set name</span>
+        <input type="text" id="practice-create-name" maxlength="120" placeholder="e.g. Geometry warm-up">
+      </label>
+      <label class="practice-create-field">
+        <span>Number of problems</span>
+        <input type="number" id="practice-create-count" min="1" value="5">
+      </label>
+      <div class="app-modal-actions">
+        <button type="button" class="app-modal-cancel" id="practice-create-cancel">Cancel</button>
+        <button type="button" class="app-modal-confirm" id="practice-create-submit">Create</button>
+      </div>
+      <p id="practice-create-error" class="progress-text"></p>
+    </div>
+  </div>
+  {% endif %}
 
   {% if can_upload %}
   <div id="figure-editor" class="figure-editor" hidden role="dialog" aria-modal="true" aria-labelledby="figure-editor-title">
