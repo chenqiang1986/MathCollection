@@ -28,6 +28,7 @@ from common.storage.practice_sets import (
     delete_practice_set,
     get_practice_set,
     list_practice_sets,
+    practice_series_problem_ids,
     remove_problem_from_practice_set,
 )
 from common.storage.queue import (
@@ -121,6 +122,7 @@ __all__ = [
     "pending_count",
     "problems_by_source_and_category",
     "problems_dir",
+    "practice_series_problem_ids",
     "query_index",
     "raw_upload_path",
     "raw_uploads_dir",

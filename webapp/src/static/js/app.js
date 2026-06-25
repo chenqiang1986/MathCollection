@@ -67,11 +67,13 @@
   const practiceDeleteBtn = document.getElementById("practice-delete-btn");
   const printHeaderTitle = document.getElementById("print-header-title");
   const practiceCreateModal = document.getElementById("practice-create-modal");
+  const practiceCreateSeriesInput = document.getElementById("practice-create-series");
   const practiceCreateNameInput = document.getElementById("practice-create-name");
   const practiceCreateCountInput = document.getElementById("practice-create-count");
   const practiceCreateSubmit = document.getElementById("practice-create-submit");
   const practiceCreateCancel = document.getElementById("practice-create-cancel");
   const practiceCreateError = document.getElementById("practice-create-error");
+  const practiceSeriesNames = document.getElementById("practice-series-names");
 
   let sliderMax = 60;
   let currentPage = 1;
@@ -181,6 +183,10 @@
 
   function practiceSetName(set) {
     return String((set && set.name) || "").trim() || "Untitled practice set";
+  }
+
+  function practiceSetSeriesName(set) {
+    return String((set && set.series_name) || "").trim();
   }
 
   function difficultyLabel(p) {
@@ -730,6 +736,7 @@
       ? {
           id: detail.id,
           name: detail.name || "",
+          series_name: detail.series_name || "",
           requested_count: detail.requested_count || 0,
           problem_count: detail.problem_count || 0,
           created_at: detail.created_at || "",
@@ -740,7 +747,25 @@
 
   function practiceSetLabel(set) {
     const stamp = formatDateTime(set.updated_at || set.created_at);
-    return `${practiceSetName(set)} · ${pluralize(set.problem_count || 0, "problem")} · ${stamp}`;
+    const series = practiceSetSeriesName(set);
+    const seriesPart = series ? ` · series ${series}` : "";
+    return `${practiceSetName(set)}${seriesPart} · ${pluralize(set.problem_count || 0, "problem")} · ${stamp}`;
+  }
+
+  function populatePracticeSeriesOptions() {
+    if (!practiceSeriesNames) return;
+    const names = [];
+    practiceSets.forEach(set => {
+      const name = practiceSetSeriesName(set);
+      if (name && !names.includes(name)) names.push(name);
+    });
+    practiceSeriesNames.innerHTML = "";
+    names.sort((a, b) => a.localeCompare(b));
+    names.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      practiceSeriesNames.appendChild(opt);
+    });
   }
 
   function populatePracticeSetOptions() {
@@ -758,6 +783,7 @@
       "beforeend",
       `<option value="${PRACTICE_CREATE_SENTINEL}">Create a new set...</option>`
     );
+    populatePracticeSeriesOptions();
   }
 
   function upsertPracticeSetSummary(detail) {
@@ -796,10 +822,15 @@
     if (practiceDeleteBtn) practiceDeleteBtn.disabled = false;
     practiceSetTitle.textContent = practiceSetName(activePracticeSet);
     practiceSetMeta.textContent =
+      `${practiceSetSeriesName(activePracticeSet) ? `series ${practiceSetSeriesName(activePracticeSet)} · ` : ""}` +
       `${pluralize(activePracticeSet.problem_count || 0, "problem")} · ` +
       `created ${formatDateTime(activePracticeSet.created_at)}`;
     if (printHeaderTitle) {
-      printHeaderTitle.textContent = `${practiceSetName(activePracticeSet)} (${activePracticeSet.problem_count || 0})`;
+      const series = practiceSetSeriesName(activePracticeSet);
+      const label = series
+        ? `${series}: ${practiceSetName(activePracticeSet)}`
+        : practiceSetName(activePracticeSet);
+      printHeaderTitle.textContent = `${label} (${activePracticeSet.problem_count || 0})`;
     }
 
     if (!(activePracticeSet.problems || []).length) {
@@ -909,7 +940,7 @@
     return resp.status === 204 ? {} : await resp.json();
   }
 
-  async function createPracticeSetFromFilters(name, count) {
+  async function createPracticeSetFromFilters(name, count, seriesName) {
     let n = parseInt(count, 10);
     if (isNaN(n) || n < 1) n = 1;
     if (practiceStatus) practiceStatus.textContent = "Creating practice set...";
@@ -920,7 +951,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ n, name }),
+          body: JSON.stringify({ n, name, series_name: seriesName }),
         }
       );
       upsertPracticeSetSummary(data.practice_set);
@@ -948,15 +979,25 @@
     practiceCreateModal.hidden = false;
     restorePracticeSetSelection();
     if (practiceCreateError) practiceCreateError.textContent = "";
+    if (practiceCreateSeriesInput) {
+      practiceCreateSeriesInput.value = activePracticeSet ? practiceSetSeriesName(activePracticeSet) : "";
+    }
     if (practiceCreateNameInput) practiceCreateNameInput.value = "";
     if (practiceCreateCountInput && !practiceCreateCountInput.value) {
       practiceCreateCountInput.value = "5";
     }
-    if (practiceCreateNameInput) practiceCreateNameInput.focus();
+    if (practiceCreateSeriesInput && !practiceCreateSeriesInput.value) {
+      practiceCreateSeriesInput.focus();
+    } else if (practiceCreateNameInput) {
+      practiceCreateNameInput.focus();
+    }
   }
 
   async function submitPracticeCreateModal() {
     if (!practiceCreateNameInput || !practiceCreateCountInput || !practiceCreateSubmit) return;
+    const seriesName = practiceCreateSeriesInput
+      ? (practiceCreateSeriesInput.value || "").trim().replace(/\s+/g, " ")
+      : "";
     const name = (practiceCreateNameInput.value || "").trim().replace(/\s+/g, " ");
     let count = parseInt(practiceCreateCountInput.value, 10);
     if (!name) {
@@ -971,17 +1012,19 @@
 
     practiceCreateSubmit.disabled = true;
     if (practiceCreateCancel) practiceCreateCancel.disabled = true;
+    if (practiceCreateSeriesInput) practiceCreateSeriesInput.disabled = true;
     practiceCreateNameInput.disabled = true;
     practiceCreateCountInput.disabled = true;
     if (practiceCreateError) practiceCreateError.textContent = "";
     try {
-      await createPracticeSetFromFilters(name, count);
+      await createPracticeSetFromFilters(name, count, seriesName);
       closePracticeCreateModal(true);
     } catch (e) {
       if (practiceCreateError) practiceCreateError.textContent = e.message;
     } finally {
       practiceCreateSubmit.disabled = false;
       if (practiceCreateCancel) practiceCreateCancel.disabled = false;
+      if (practiceCreateSeriesInput) practiceCreateSeriesInput.disabled = false;
       practiceCreateNameInput.disabled = false;
       practiceCreateCountInput.disabled = false;
     }

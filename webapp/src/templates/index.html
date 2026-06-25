@@ -169,13 +169,18 @@
   <datalist id="all-categories"></datalist>
   <datalist id="all-subcategories"></datalist>
   <datalist id="all-tags"></datalist>
+  <datalist id="practice-series-names"></datalist>
 
   {% if can_upload %}
   <div id="practice-create-modal" class="app-modal" hidden>
     <div class="app-modal-backdrop"></div>
     <div class="app-modal-dialog practice-create-dialog" role="dialog" aria-modal="true" aria-labelledby="practice-create-title">
       <h3 id="practice-create-title" class="app-modal-title">Create Practice Set</h3>
-      <p class="app-modal-message">Pick how many filtered problems to sample, then give the set a name.</p>
+      <p class="app-modal-message">Pick how many filtered problems to sample, then name the set. Sets with the same series name won't reuse problems.</p>
+      <label class="practice-create-field">
+        <span>Series name (optional)</span>
+        <input type="text" id="practice-create-series" maxlength="120" list="practice-series-names" placeholder="e.g. Geometry warm-up">
+      </label>
       <label class="practice-create-field">
         <span>Set name</span>
         <input type="text" id="practice-create-name" maxlength="120" placeholder="e.g. Geometry warm-up">

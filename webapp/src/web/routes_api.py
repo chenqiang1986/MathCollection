@@ -422,17 +422,26 @@ def list_practice_sets():
 def create_practice_set():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
+    series_name = (payload.get("series_name") or "").strip()
     try:
         n = int(payload.get("n", DEFAULT_PAGE_SIZE))
     except (TypeError, ValueError):
         n = DEFAULT_PAGE_SIZE
     n = max(1, min(MAX_SAMPLE_SIZE, n))
-    ids = storage.sample_index(n, **_parse_filters())
+    excluded_ids = storage.practice_series_problem_ids(series_name)
+    ids = storage.sample_index(
+        n,
+        exclude_problem_ids=excluded_ids,
+        **_parse_filters(),
+    )
     if not ids:
-        return jsonify({"error": "no problems match the current filters"}), 400
+        error = "no problems match the current filters"
+        if series_name:
+            error = "no unused problems match the current filters for this series"
+        return jsonify({"error": error}), 400
     try:
         practice_set = storage.create_practice_set(
-            ids, requested_count=n, name=name
+            ids, requested_count=n, name=name, series_name=series_name
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -469,7 +478,8 @@ def add_problem_to_practice_set(practice_set_id):
     try:
         practice_set = storage.add_problem_to_practice_set(practice_set_id, problem_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 404
+        status = 404 if str(e) == "problem not found" else 409
+        return jsonify({"error": str(e)}), status
     if not practice_set:
         return jsonify({"error": "not found"}), 404
     return jsonify({"practice_set": practice_set})

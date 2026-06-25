@@ -128,13 +128,19 @@ CREATE TABLE IF NOT EXISTS practice_sets (
     user_id TEXT NOT NULL,
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
+    series_name TEXT NOT NULL DEFAULT '',
+    series_key TEXT NOT NULL DEFAULT '',
     requested_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 ALTER TABLE practice_sets ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE practice_sets ADD COLUMN IF NOT EXISTS series_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE practice_sets ADD COLUMN IF NOT EXISTS series_key TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_practice_sets_user_id_id ON practice_sets(user_id, id);
 CREATE INDEX IF NOT EXISTS idx_practice_sets_user_updated ON practice_sets(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_practice_sets_user_series
+    ON practice_sets(user_id, series_key, updated_at);
 
 CREATE TABLE IF NOT EXISTS practice_set_problems (
     user_id TEXT NOT NULL,
@@ -151,4 +157,4 @@ CREATE INDEX IF NOT EXISTS idx_practice_set_problems_user_problem
 
 -- Bump this literal whenever a new ALTER above changes the row shape. The next
 -- init_user() detects DATA_VERSION < SCHEMA_VERSION per user and re-backfills.
-UPDATE schema_version SET schema_version = 3;
+UPDATE schema_version SET schema_version = 4;

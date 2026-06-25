@@ -243,11 +243,16 @@ def sample_index(
     tags: list[str] | None = None,
     cat_subcat: list[tuple[str, str]] | None = None,
     exam_subexam: list[tuple[str, str]] | None = None,
+    exclude_problem_ids: list[str] | None = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
         years, figures, tags, cat_subcat, exam_subexam,
     )
+    if exclude_problem_ids:
+        placeholders = ", ".join("%s" for _ in exclude_problem_ids)
+        where_clause += f" AND id NOT IN ({placeholders})"
+        params.extend(exclude_problem_ids)
     with connect() as conn:
         rows = conn.execute(
             f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT %s",

@@ -17,6 +17,7 @@ def _summary_from_row(row: dict) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
+        "series_name": row.get("series_name") or "",
         "requested_count": int(row["requested_count"] or 0),
         "problem_count": int(row["problem_count"] or 0),
         "created_at": row["created_at"],
@@ -30,6 +31,7 @@ def _practice_set_summary(conn, practice_set_id: str) -> dict | None:
         SELECT
             ps.id,
             ps.name,
+            ps.series_name,
             ps.requested_count,
             ps.created_at,
             ps.updated_at,
@@ -45,6 +47,45 @@ def _practice_set_summary(conn, practice_set_id: str) -> dict | None:
     return _summary_from_row(row) if row else None
 
 
+def _clean_series_name(series_name: str) -> str:
+    return " ".join((series_name or "").split()).strip()
+
+
+def _series_key(series_name: str) -> str:
+    return _clean_series_name(series_name).lower()
+
+
+def practice_series_problem_ids(
+    series_name: str,
+    *,
+    exclude_practice_set_id: str | None = None,
+) -> list[str]:
+    key = _series_key(series_name)
+    if not key:
+        return []
+    params: list[str] = [current_user_id(), key]
+    exclude_clause = ""
+    if exclude_practice_set_id:
+        exclude_clause = " AND ps.id <> %s"
+        params.append(exclude_practice_set_id)
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT psp.problem_id
+            FROM practice_set_problems psp
+            JOIN practice_sets ps
+              ON ps.user_id = psp.user_id
+             AND ps.id = psp.practice_set_id
+            WHERE ps.user_id = %s
+              AND ps.series_key = %s
+              {exclude_clause}
+            ORDER BY psp.problem_id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [row["problem_id"] for row in rows]
+
+
 def list_practice_sets() -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
@@ -52,6 +93,7 @@ def list_practice_sets() -> list[dict]:
             SELECT
                 ps.id,
                 ps.name,
+                ps.series_name,
                 ps.requested_count,
                 ps.created_at,
                 ps.updated_at,
@@ -98,15 +140,25 @@ def get_practice_set(practice_set_id: str) -> dict | None:
 
 
 def create_practice_set(
-    problem_ids: list[str], requested_count: int, name: str
+    problem_ids: list[str],
+    requested_count: int,
+    name: str,
+    series_name: str = "",
 ) -> dict:
     now = _now_iso()
     practice_set_id = str(uuid.uuid4())
     user = current_user_id()
     clean_name = " ".join((name or "").split()).strip()
+    clean_series_name = _clean_series_name(series_name)
+    series_key = _series_key(clean_series_name)
+    excluded_ids = set(practice_series_problem_ids(clean_series_name))
     deduped_ids: list[str] = []
     for problem_id in problem_ids:
-        if problem_id and problem_id not in deduped_ids:
+        if (
+            problem_id
+            and problem_id not in deduped_ids
+            and problem_id not in excluded_ids
+        ):
             deduped_ids.append(problem_id)
     if not deduped_ids:
         raise ValueError("practice set must contain at least one problem")
@@ -117,13 +169,24 @@ def create_practice_set(
         conn.execute(
             """
             INSERT INTO practice_sets
-                (user_id, id, name, requested_count, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (
+                    user_id,
+                    id,
+                    name,
+                    series_name,
+                    series_key,
+                    requested_count,
+                    created_at,
+                    updated_at
+                )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user,
                 practice_set_id,
                 clean_name,
+                clean_series_name,
+                series_key,
                 max(0, int(requested_count)),
                 now,
                 now,
@@ -151,7 +214,8 @@ def add_problem_to_practice_set(practice_set_id: str, problem_id: str) -> dict |
     user = current_user_id()
     now = _now_iso()
     with connect() as conn:
-        if not _practice_set_summary(conn, practice_set_id):
+        summary = _practice_set_summary(conn, practice_set_id)
+        if not summary:
             return None
         problem_exists = conn.execute(
             "SELECT 1 FROM problems WHERE user_id = %s AND id = %s",
@@ -168,6 +232,25 @@ def add_problem_to_practice_set(practice_set_id: str, problem_id: str) -> dict |
             (user, practice_set_id, problem_id),
         ).fetchone()
         if not existing:
+            series_name = summary.get("series_name") or ""
+            if series_name:
+                duplicate_in_series = conn.execute(
+                    """
+                    SELECT 1
+                    FROM practice_set_problems psp
+                    JOIN practice_sets ps
+                      ON ps.user_id = psp.user_id
+                     AND ps.id = psp.practice_set_id
+                    WHERE ps.user_id = %s
+                      AND ps.series_key = %s
+                      AND ps.id <> %s
+                      AND psp.problem_id = %s
+                    LIMIT 1
+                    """,
+                    (user, _series_key(series_name), practice_set_id, problem_id),
+                ).fetchone()
+                if duplicate_in_series:
+                    raise ValueError("problem already appears in another set in this series")
             row = conn.execute(
                 """
                 SELECT COALESCE(MAX(position), 0) AS max_position
