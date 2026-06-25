@@ -189,6 +189,18 @@
         <span>Number of problems</span>
         <input type="number" id="practice-create-count" min="1" value="5">
       </label>
+      <fieldset class="practice-create-field practice-create-order-field">
+        <legend>Order by</legend>
+        <p class="practice-create-order-hint">Add sort keys in the order they should apply.</p>
+        <div class="practice-create-order-picker">
+          <div class="pair-menu" id="practice-order-menu">
+            <button type="button" class="pair-menu-trigger" id="practice-order-menu-trigger"
+                    aria-haspopup="true" aria-expanded="false">+ Add key ▾</button>
+            <div class="pair-menu-panel" id="practice-order-menu-panel" role="menu" hidden></div>
+          </div>
+          <span class="tag-chip-list" id="practice-order-chips"></span>
+        </div>
+      </fieldset>
       <div class="app-modal-actions">
         <button type="button" class="app-modal-cancel" id="practice-create-cancel">Cancel</button>
         <button type="button" class="app-modal-confirm" id="practice-create-submit">Create</button>

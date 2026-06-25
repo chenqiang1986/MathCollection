@@ -74,6 +74,7 @@
   const practiceCreateCancel = document.getElementById("practice-create-cancel");
   const practiceCreateError = document.getElementById("practice-create-error");
   const practiceSeriesNames = document.getElementById("practice-series-names");
+  const PRACTICE_CREATE_DEFAULT_ORDER_BY = ["random"];
 
   let sliderMax = 60;
   let currentPage = 1;
@@ -96,6 +97,7 @@
   let practiceSets = [];
   let activePracticeSet = null;
   let activePracticeProblemIds = new Set();
+  let practiceCreateOrderBy = PRACTICE_CREATE_DEFAULT_ORDER_BY.slice();
   const PRACTICE_CREATE_SENTINEL = "__create_new__";
 
   function escapeHtml(s) {
@@ -187,6 +189,38 @@
 
   function practiceSetSeriesName(set) {
     return String((set && set.series_name) || "").trim();
+  }
+
+  function practiceOrderLabel(value) {
+    if (value === "year") return "Year";
+    if (value === "exam") return "Exam";
+    if (value === "category+subcategory") return "Category + subcategory";
+    if (value === "random") return "Random";
+    return String(value || "");
+  }
+
+  function practiceOrderItems(values) {
+    return (values || []).map(value => ({
+      value,
+      label: practiceOrderLabel(value),
+      title: "",
+    }));
+  }
+
+  function selectedPracticeCreateOrderBy() {
+    const selected = practiceOrderFilter ? practiceOrderFilter.getValues() : [];
+    if (selected.length) return selected;
+    applyPracticeCreateOrderBy(PRACTICE_CREATE_DEFAULT_ORDER_BY);
+    return PRACTICE_CREATE_DEFAULT_ORDER_BY.slice();
+  }
+
+  function applyPracticeCreateOrderBy(orderBy) {
+    const selected = Array.isArray(orderBy) && orderBy.length
+      ? orderBy
+      : PRACTICE_CREATE_DEFAULT_ORDER_BY;
+    if (practiceOrderFilter) {
+      practiceOrderFilter.setSelected(practiceOrderItems(selected));
+    }
   }
 
   function difficultyLabel(p) {
@@ -502,6 +536,9 @@
     const panelEl = document.getElementById(opts.panelId);
     const chipsEl = document.getElementById(opts.chipsId);
     const selected = [];  // [{ value, label }], deduped by value
+    const notifyChange = typeof opts.onChange === "function"
+      ? opts.onChange
+      : () => onFilterChange();
 
     function renderChips() {
       if (!chipsEl) return;
@@ -521,7 +558,7 @@
       if (!value || selected.some(p => p.value === value)) return;
       selected.push({ value, label, title: title || "" });
       renderChips();
-      onFilterChange();
+      notifyChange(selected.map(p => ({ ...p })));
     }
 
     function remove(value) {
@@ -529,7 +566,7 @@
       if (i === -1) return;
       selected.splice(i, 1);
       renderChips();
-      onFilterChange();
+      notifyChange(selected.map(p => ({ ...p })));
     }
 
     // Build a clickable leaf carrying its param value + chip label. `menuText`
@@ -610,6 +647,29 @@
       isActive: () => selected.length > 0,
       has: (value) => selected.some(p => p.value === value),
       remove,
+      getValues: () => selected.map(p => p.value),
+      setSelected: (items) => {
+        selected.splice(0, selected.length);
+        (items || []).forEach(item => {
+          if (!item || !item.value || selected.some(p => p.value === item.value)) return;
+          selected.push({
+            value: item.value,
+            label: item.label || item.value,
+            title: item.title || "",
+          });
+        });
+        renderChips();
+        notifyChange(selected.map(p => ({ ...p })));
+      },
+      setDisabled: (disabled) => {
+        if (disabled) close();
+        if (triggerEl) triggerEl.disabled = !!disabled;
+        if (chipsEl) {
+          chipsEl.querySelectorAll(".filter-chip-remove").forEach(btn => {
+            btn.disabled = !!disabled;
+          });
+        }
+      },
       appendParams: (params) => {
         selected.forEach(p => params.append(opts.paramName, p.value));
       },
@@ -710,6 +770,24 @@
       titleFor: (v) => tagComment(v),
     }),
   });
+
+  const practiceOrderFilter = createMenuFilter({
+    menuId: "practice-order-menu",
+    triggerId: "practice-order-menu-trigger",
+    panelId: "practice-order-menu-panel",
+    chipsId: "practice-order-chips",
+    paramName: "order_by",
+    populate: listPopulate({
+      getValues: () => ["year", "exam", "category+subcategory", "random"],
+      formatValue: practiceOrderLabel,
+    }),
+    onChange: selected => {
+      practiceCreateOrderBy = selected.length
+        ? selected.map(item => item.value)
+        : PRACTICE_CREATE_DEFAULT_ORDER_BY.slice();
+    },
+  });
+  if (practiceOrderFilter) practiceOrderFilter.build();
 
   function rangeActive() {
     if (!minInput || !maxInput) return false;
@@ -940,7 +1018,7 @@
     return resp.status === 204 ? {} : await resp.json();
   }
 
-  async function createPracticeSetFromFilters(name, count, seriesName) {
+  async function createPracticeSetFromFilters(name, count, seriesName, orderBy) {
     let n = parseInt(count, 10);
     if (isNaN(n) || n < 1) n = 1;
     if (practiceStatus) practiceStatus.textContent = "Creating practice set...";
@@ -951,7 +1029,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ n, name, series_name: seriesName }),
+          body: JSON.stringify({ n, name, series_name: seriesName, order_by: orderBy }),
         }
       );
       upsertPracticeSetSummary(data.practice_set);
@@ -979,6 +1057,7 @@
     practiceCreateModal.hidden = false;
     restorePracticeSetSelection();
     if (practiceCreateError) practiceCreateError.textContent = "";
+    if (practiceOrderFilter) practiceOrderFilter.build();
     if (practiceCreateSeriesInput) {
       practiceCreateSeriesInput.value = activePracticeSet ? practiceSetSeriesName(activePracticeSet) : "";
     }
@@ -986,6 +1065,7 @@
     if (practiceCreateCountInput && !practiceCreateCountInput.value) {
       practiceCreateCountInput.value = "5";
     }
+    applyPracticeCreateOrderBy(practiceCreateOrderBy);
     if (practiceCreateSeriesInput && !practiceCreateSeriesInput.value) {
       practiceCreateSeriesInput.focus();
     } else if (practiceCreateNameInput) {
@@ -999,6 +1079,7 @@
       ? (practiceCreateSeriesInput.value || "").trim().replace(/\s+/g, " ")
       : "";
     const name = (practiceCreateNameInput.value || "").trim().replace(/\s+/g, " ");
+    const orderBy = selectedPracticeCreateOrderBy();
     let count = parseInt(practiceCreateCountInput.value, 10);
     if (!name) {
       if (practiceCreateError) practiceCreateError.textContent = "Set name is required.";
@@ -1013,11 +1094,13 @@
     practiceCreateSubmit.disabled = true;
     if (practiceCreateCancel) practiceCreateCancel.disabled = true;
     if (practiceCreateSeriesInput) practiceCreateSeriesInput.disabled = true;
+    if (practiceOrderFilter) practiceOrderFilter.setDisabled(true);
     practiceCreateNameInput.disabled = true;
     practiceCreateCountInput.disabled = true;
     if (practiceCreateError) practiceCreateError.textContent = "";
     try {
-      await createPracticeSetFromFilters(name, count, seriesName);
+      practiceCreateOrderBy = orderBy.slice();
+      await createPracticeSetFromFilters(name, count, seriesName, orderBy);
       closePracticeCreateModal(true);
     } catch (e) {
       if (practiceCreateError) practiceCreateError.textContent = e.message;
@@ -1025,6 +1108,7 @@
       practiceCreateSubmit.disabled = false;
       if (practiceCreateCancel) practiceCreateCancel.disabled = false;
       if (practiceCreateSeriesInput) practiceCreateSeriesInput.disabled = false;
+      if (practiceOrderFilter) practiceOrderFilter.setDisabled(false);
       practiceCreateNameInput.disabled = false;
       practiceCreateCountInput.disabled = false;
     }

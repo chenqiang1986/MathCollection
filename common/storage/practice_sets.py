@@ -8,6 +8,13 @@ from datetime import datetime, timezone
 from common.storage.db import connect
 from common.storage.paths import current_user_id
 
+PRACTICE_SET_ORDER_KEYS: tuple[str, ...] = (
+    "year",
+    "exam",
+    "category+subcategory",
+    "random",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -53,6 +60,35 @@ def _clean_series_name(series_name: str) -> str:
 
 def _series_key(series_name: str) -> str:
     return _clean_series_name(series_name).lower()
+
+
+def normalize_practice_set_order_by(raw: object) -> list[str]:
+    if raw is None or raw == "":
+        return ["random"]
+    if isinstance(raw, str):
+        items = [raw]
+    elif isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        raise ValueError("order_by must be a list of strings")
+    out: list[str] = []
+    aliases = {
+        "category_subcategory": "category+subcategory",
+        "category + subcategory": "category+subcategory",
+    }
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError("order_by must be a list of strings")
+        key = aliases.get(" ".join(item.split()).strip().lower(), item)
+        key = " ".join(key.split()).strip().lower()
+        if key not in PRACTICE_SET_ORDER_KEYS:
+            raise ValueError(
+                "order_by keys must be one of: "
+                + ", ".join(PRACTICE_SET_ORDER_KEYS)
+            )
+        if key not in out:
+            out.append(key)
+    return out or ["random"]
 
 
 def practice_series_problem_ids(

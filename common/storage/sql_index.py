@@ -8,6 +8,7 @@ column (see `common.storage.paths.current_user_id`).
 
 from common.storage.db import connect
 from common.storage.paths import current_user_id
+from common.storage.practice_sets import normalize_practice_set_order_by
 from common.storage.vocab import Problem, normalize_tags
 
 
@@ -201,6 +202,43 @@ def _build_where(
     return " WHERE " + " AND ".join(where), params
 
 
+def _order_by_clause(order_by: object) -> str:
+    normalized = normalize_practice_set_order_by(order_by)
+    clauses: list[str] = []
+    for key in normalized:
+        if key == "year":
+            clauses.extend(
+                [
+                    "CASE WHEN year = '' OR LOWER(year) = 'unknown' THEN 1 ELSE 0 END ASC",
+                    "CASE WHEN year ~ '^[0-9]+$' THEN 0 ELSE 1 END ASC",
+                    "CASE WHEN year ~ '^[0-9]+$' THEN CAST(year AS INTEGER) ELSE NULL END ASC",
+                    "LOWER(year) ASC",
+                ]
+            )
+        elif key == "exam":
+            clauses.extend(
+                [
+                    "CASE WHEN source_exam = '' OR LOWER(source_exam) = 'unknown' THEN 1 ELSE 0 END ASC",
+                    "LOWER(source_exam) ASC",
+                    "CASE WHEN subexam = '' OR LOWER(subexam) = 'unknown' THEN 1 ELSE 0 END ASC",
+                    "LOWER(subexam) ASC",
+                ]
+            )
+        elif key == "category+subcategory":
+            clauses.extend(
+                [
+                    "CASE WHEN category = '' OR LOWER(category) = 'unknown' THEN 1 ELSE 0 END ASC",
+                    "LOWER(category) ASC",
+                    "CASE WHEN subcategory = '' OR LOWER(subcategory) = 'unknown' THEN 1 ELSE 0 END ASC",
+                    "LOWER(subcategory) ASC",
+                ]
+            )
+        elif key == "random":
+            clauses.append("RANDOM()")
+    clauses.append("id ASC")
+    return " ORDER BY " + ", ".join(clauses)
+
+
 def query_index(
     min_time: float | None = None,
     max_time: float | None = None,
@@ -244,6 +282,7 @@ def sample_index(
     cat_subcat: list[tuple[str, str]] | None = None,
     exam_subexam: list[tuple[str, str]] | None = None,
     exclude_problem_ids: list[str] | None = None,
+    order_by: object = None,
 ) -> list[str]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
@@ -253,9 +292,10 @@ def sample_index(
         placeholders = ", ".join("%s" for _ in exclude_problem_ids)
         where_clause += f" AND id NOT IN ({placeholders})"
         params.extend(exclude_problem_ids)
+    order_clause = _order_by_clause(order_by)
     with connect() as conn:
         rows = conn.execute(
-            f"SELECT id FROM problems{where_clause} ORDER BY RANDOM() LIMIT %s",
+            f"SELECT id FROM problems{where_clause}{order_clause} LIMIT %s",
             (*params, max(1, int(n))),
         ).fetchall()
     return [r["id"] for r in rows]

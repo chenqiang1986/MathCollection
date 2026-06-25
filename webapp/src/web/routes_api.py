@@ -423,25 +423,30 @@ def create_practice_set():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
     series_name = (payload.get("series_name") or "").strip()
+    order_by = payload.get("order_by")
     try:
         n = int(payload.get("n", DEFAULT_PAGE_SIZE))
     except (TypeError, ValueError):
         n = DEFAULT_PAGE_SIZE
     n = max(1, min(MAX_SAMPLE_SIZE, n))
     excluded_ids = storage.practice_series_problem_ids(series_name)
-    ids = storage.sample_index(
-        n,
-        exclude_problem_ids=excluded_ids,
-        **_parse_filters(),
-    )
-    if not ids:
-        error = "no problems match the current filters"
-        if series_name:
-            error = "no unused problems match the current filters for this series"
-        return jsonify({"error": error}), 400
     try:
+        ids = storage.sample_index(
+            n,
+            exclude_problem_ids=excluded_ids,
+            order_by=order_by,
+            **_parse_filters(),
+        )
+        if not ids:
+            error = "no problems match the current filters"
+            if series_name:
+                error = "no unused problems match the current filters for this series"
+            return jsonify({"error": error}), 400
         practice_set = storage.create_practice_set(
-            ids, requested_count=n, name=name, series_name=series_name
+            ids,
+            requested_count=n,
+            name=name,
+            series_name=series_name,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
