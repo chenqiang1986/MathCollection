@@ -102,11 +102,12 @@ CREATE TABLE IF NOT EXISTS tags (
     PRIMARY KEY (user_id, name)
 );
 
--- raw_files: authoritative queue of uploaded sources awaiting worker
--- processing. Cannot be rebuilt from the filesystem (carries with_solution,
--- attempts, errors, timestamps). Lifecycle:
---   pending_image_scan -> processing_image_scan -> pending_problem_solve
---   -> processing_problem_solve -> done | failed
+-- raw_files: authoritative queue of uploaded sources awaiting worker scan.
+-- Cannot be rebuilt from the filesystem (carries attempts, errors,
+-- timestamps). Lifecycle:
+--   pending_image_scan -> processing_image_scan -> done | failed
+-- `with_solution` is retained but unused (no automated stage reads it
+-- anymore; full-solution solving is now ad hoc via POST /problems/<id>/refine).
 CREATE TABLE IF NOT EXISTS raw_files (
     user_id TEXT NOT NULL,
     filename TEXT NOT NULL,
@@ -120,6 +121,27 @@ CREATE TABLE IF NOT EXISTS raw_files (
     PRIMARY KEY (user_id, filename)
 );
 CREATE INDEX IF NOT EXISTS idx_status_queued ON raw_files(user_id, status, queued_at);
+
+-- classify_tasks: authoritative queue of problems awaiting classification,
+-- independent of which source file they came from. A row is seeded
+-- (status='pending') for every problem with category='unclassified' the
+-- first time the classify batch job runs (see
+-- common.storage.classify_tasks.seed_pending), so this also covers
+-- problems that predate this table. Lifecycle:
+--   pending -> processing -> done | failed
+CREATE TABLE IF NOT EXISTS classify_tasks (
+    user_id TEXT NOT NULL,
+    problem_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    batch_id TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    queued_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    PRIMARY KEY (user_id, problem_id)
+);
+CREATE INDEX IF NOT EXISTS idx_classify_status ON classify_tasks(user_id, status, queued_at);
 
 -- practice_sets: authoritative saved selections of problems for printing and
 -- later manual curation. Unlike `problems`, these rows are not derivable from

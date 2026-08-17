@@ -198,6 +198,50 @@ def queue_retry():
     return jsonify({"filename": filename, "status": storage.PENDING_IMAGE_SCAN})
 
 
+CLASSIFY_SNIPPET_LEN = 160
+
+
+@bp.route("/classify", methods=["GET"])
+@login_required
+def classify_state():
+    items = storage.classify_tasks.list_items(limit=500)
+    rows = []
+    for item in items:
+        row = item._asdict()
+        problem = storage.get_problem(item.problem_id)
+        if problem is not None:
+            snippet = problem.problem_text.replace("\n", " ").strip()
+            if len(snippet) > CLASSIFY_SNIPPET_LEN:
+                snippet = snippet[:CLASSIFY_SNIPPET_LEN] + "…"
+            row["problem_text"] = snippet
+            row["category"] = problem.category
+            row["subcategory"] = problem.subcategory
+        else:
+            row["problem_text"] = "(problem deleted)"
+            row["category"] = ""
+            row["subcategory"] = ""
+        rows.append(row)
+    return jsonify(
+        {
+            "counts": storage.classify_tasks.status_counts(),
+            "items": rows,
+        }
+    )
+
+
+@bp.route("/classify/retry", methods=["POST"])
+@login_required
+@upload_allowed_required
+def classify_retry():
+    payload = request.get_json(silent=True) or {}
+    problem_id = (payload.get("problem_id") or "").strip()
+    if not problem_id:
+        return jsonify({"error": "problem_id is required"}), 400
+    if not storage.classify_tasks.retry_failed(problem_id):
+        return jsonify({"error": "not a failed item"}), 404
+    return jsonify({"problem_id": problem_id, "status": storage.CLASSIFY_PENDING})
+
+
 @bp.route("/problems", methods=["GET"])
 @read_context
 def problems():

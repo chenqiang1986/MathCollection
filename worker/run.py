@@ -1,14 +1,17 @@
 """Main loop for the offline worker.
 
-Scans every user directory under `data/`. For each user, drains both
-queue stages — image_scan first (so newly uploaded files turn into
-partials quickly), then problem_solve (so the solver backlog catches
-up). Each claimed row runs through one stage and is either advanced,
-reverted, or failed.
+Scans every user directory under `data/`. For each user, does at most one
+unit of image-scan work (claims and drives the oldest `pending_image_scan`
+row) and one round of batch-classify work (`agent.classify_pending_problems`,
+a flat sweep over unclassified problems bounded to
+`CLASSIFY_CONCURRENCY * CLASSIFY_BATCH_SIZE` problems per call — see
+`worker/agent/orchestrator.py`) — then moves to the next user.
 
-If a run reports `hit_quota_limit=True`, the row is reverted to its
-pending state (quota isn't the file's fault, so it doesn't count toward
-`MAX_ATTEMPTS`) and the whole scan loop sleeps until the reported reset
+If a run reports `hit_quota_limit=True`, image-scan rows are reverted to
+`pending_image_scan` (quota isn't the file's fault, so it doesn't count
+toward `MAX_ATTEMPTS`); classify quota hits are handled internally by
+`classify_pending_problems` (each unsaved problem is reverted to
+`pending`). Either way the whole loop sleeps until the reported reset
 timestamp before trying again.
 """
 
@@ -19,12 +22,14 @@ from common import storage
 from common.db_setup.setup import init_user
 
 from worker import agent
+from worker.quota import later_reset
 
 IDLE_SLEEP_SECONDS = 60
-# Cap how many times a single stage can be reverted-and-retried on a
-# partial result. After this many `claim_next_*` cycles produce an
+# Cap how many times image scan can be reverted-and-retried on a partial
+# result. After this many `claim_next_image_scan` cycles produce an
 # incomplete result, give up and mark the file failed so a deterministic
-# per-problem error doesn't loop forever.
+# per-problem error doesn't loop forever. (Classify has its own retry
+# budget, `CLASSIFY_MAX_ATTEMPTS` in orchestrator.py, applied per problem.)
 MAX_ATTEMPTS = 3
 # Fallback wait when a quota hit is reported with no `resets_at`.
 DEFAULT_QUOTA_SLEEP_SECONDS = 60 * 60
@@ -58,12 +63,6 @@ def _run_image_scan(item: storage.QueueItem) -> agent.StageResult:
     if not raw_path.exists():
         raise FileNotFoundError(f"raw file missing on disk: {raw_path}")
     return agent.scan_image(raw_path, source_image=item.filename)
-
-
-def _run_problem_solve(item: storage.QueueItem) -> agent.StageResult:
-    return agent.solve_pending_problems(
-        source_image=item.filename, with_solution=item.with_solution
-    )
 
 
 def _handle_result(
@@ -125,46 +124,41 @@ def _handle_result(
         )
 
 
-def _drain_user(email: str) -> agent.StageResult | None:
-    """Claim and process at most one pending row for this user — image
-    scan first, then problem solve. Returns the run's `StageResult` if
-    work was done, or `None` if there was nothing pending. On a quota hit
-    the row is reverted to pending; the caller is expected to sleep until
-    `result.quota_reset_at`."""
+def _drain_user(email: str) -> list[agent.StageResult]:
+    """Do at most one unit of image-scan work and one round of
+    batch-classify work for this user. Returns the StageResult(s)
+    produced; empty if there was nothing to do in either job."""
     token = storage.set_current_user(email)
     try:
         init_user()
+        results: list[agent.StageResult] = []
 
         item = storage.claim_next_image_scan()
         if item is not None:
             print(
                 f"[worker] {email} scan {item.filename} "
-                f"(attempt {item.attempts}, with_solution={item.with_solution})",
+                f"(attempt {item.attempts})",
                 flush=True,
             )
-            return _drive_stage(
-                item,
-                stage="image_scan",
-                run_fn=_run_image_scan,
-                advance_fn=storage.advance_to_problem_solve,
-                revert_fn=storage.revert_image_scan,
+            results.append(
+                _drive_stage(
+                    item,
+                    stage="image_scan",
+                    run_fn=_run_image_scan,
+                    advance_fn=storage.mark_done,
+                    revert_fn=storage.revert_image_scan,
+                )
             )
 
-        item = storage.claim_next_problem_solve()
-        if item is not None:
+        classify_result = agent.classify_pending_problems()
+        if classify_result.summary != agent.NO_CLASSIFY_WORK_SUMMARY:
             print(
-                f"[worker] {email} solve {item.filename} "
-                f"(attempt {item.attempts}, with_solution={item.with_solution})",
+                f"[worker] {email} classify: {classify_result.summary}",
                 flush=True,
             )
-            return _drive_stage(
-                item,
-                stage="problem_solve",
-                run_fn=_run_problem_solve,
-                advance_fn=storage.mark_done,
-                revert_fn=storage.revert_problem_solve,
-            )
-        return None
+            results.append(classify_result)
+
+        return results
     finally:
         storage.reset_current_user(token)
 
@@ -194,16 +188,19 @@ def _drive_stage(
 
 
 def _reclaim_all_stale() -> None:
-    """At startup, flip any in-flight `processing_*` rows from a prior
-    killed run back to the matching `pending_*` so they get retried."""
+    """At startup, flip any in-flight `processing_image_scan` rows and any
+    `processing` classify_tasks rows from a prior killed run back to
+    pending so they get retried."""
     for email in _iter_user_emails():
         token = storage.set_current_user(email)
         try:
             init_user()
             n = storage.reclaim_stale_processing()
-            if n:
+            m = storage.classify_tasks.reclaim_stale_processing()
+            if n or m:
                 print(
-                    f"[worker] {email}: reclaimed {n} stale processing row(s)",
+                    f"[worker] {email}: reclaimed {n} stale scan row(s), "
+                    f"{m} stale classify task(s)",
                     flush=True,
                 )
         finally:
@@ -218,20 +215,22 @@ def run_forever() -> None:
         quota_reset_at: datetime | None = None
         for email in _iter_user_emails():
             try:
-                result = _drain_user(email)
+                results = _drain_user(email)
             except Exception as exc:
                 print(
                     f"[worker] {email} unexpected error draining: {exc!r}",
                     flush=True,
                 )
                 continue
-            if result is None:
+            if not results:
                 continue
             did_work = True
-            if result.hit_quota_limit:
+            quota_results = [r for r in results if r.hit_quota_limit]
+            if quota_results:
                 # Quota is global per account, not per-user — no point
                 # draining the next user, they'll just hit it too.
-                quota_reset_at = result.quota_reset_at
+                for r in quota_results:
+                    quota_reset_at = later_reset(quota_reset_at, r.quota_reset_at)
                 break
         if quota_reset_at is not None:
             sleep_s = _seconds_until(quota_reset_at)
@@ -256,14 +255,14 @@ def run_once() -> int:
     processed = 0
     for email in _iter_user_emails():
         while True:
-            result = _drain_user(email)
-            if result is None:
+            results = _drain_user(email)
+            if not results:
                 break
-            processed += 1
-            if result.hit_quota_limit:
+            processed += len(results)
+            if any(r.hit_quota_limit for r in results):
                 print(
                     f"[worker] quota hit during --once "
-                    f"(resets_at={result.quota_reset_at}); aborting drain",
+                    f"(user={email}); aborting drain",
                     flush=True,
                 )
                 return processed

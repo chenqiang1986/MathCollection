@@ -1,121 +1,138 @@
 # Worker agent package
 
-Two-stage pipeline that turns one uploaded image into N saved problem
-records. The two stages are independent functions driven by the worker
-runner so a quota hit or partial result in one stage can't roll back the
-other.
+Two independent jobs, each driven by the worker runner so a quota hit or
+partial result in one can't roll back the other:
 
-- **Stage 1 — `scan_image(image_path, source_image)`.** One orchestrator
-  LLM call extracts every problem out of the source and persists each as
-  a partial record (`category='unclassified'`, no solution) via
-  `build_problem_store(mode="parsed")`. Saved by the runner as the
-  `processing_image_scan -> pending_problem_solve` transition.
-- **Stage 2 — `solve_pending_problems(source_image, with_solution)`.**
-  Looks up partials by `(source_image, category='unclassified')` and
-  fans them out to per-problem solver agents with
-  `SOLVER_CONCURRENCY`-sized concurrency. Each solver updates one
-  partial in place via `build_problem_store(mode="solved",
-  existing_problem_id=...)`. Saved by the runner as
-  `processing_problem_solve -> done`.
+- **Image scan — `scan_image(image_path, source_image)`.** One
+  orchestrator LLM call extracts every problem out of the source and
+  persists each as a partial record (`category='unclassified'`, no
+  solution) via `build_scan_store`. Tracked per file in `raw_files`
+  (`common.storage.queue`); saved by the runner as the
+  `processing_image_scan -> done` transition.
+- **Batch classify — `classify_pending_problems(batch_size, concurrency)`.**
+  Claims a flat backlog of `unclassified` problems (independent of
+  source file — see `common.storage.classify_tasks`), bounded to
+  `concurrency * batch_size` per call, and fans them out to that many
+  concurrent batch-classify sessions. Each session
+  (`worker.agent.classifier.classify_batch`) covers many problems in one
+  system prompt and calls `save_classification` once per problem via
+  `build_classify_store`. Bookkeeping (`done` / reverted / `failed`) is
+  applied per problem directly against `classify_tasks`, independent of
+  any `raw_files` row.
+
+Full re-solving (a written-out solution) is not part of this package at
+all anymore — it's the webapp's ad hoc refine flow
+(`webapp/src/lib/agent/refine.py`, `POST /problems/<id>/refine`), which
+reuses the shared `common/prompts/solver.md` template directly.
 
 ## Files
 
 - [__init__.py](__init__.py) — public surface (`scan_image`,
-  `solve_pending_problems`, `StageResult` / `ProcessImageResult`,
-  `build_problem_store`, `UNCLASSIFIED_CATEGORY`).
-- [orchestrator.py](orchestrator.py) — the two stage drivers
-  (`scan_image`, `solve_pending_problems`) plus their `_async`
-  implementations. Sync wrappers each call `asyncio.run` internally — do
-  not call from inside an existing event loop.
-- [solver.py](solver.py) — per-problem inner agent. `solve_problem(partial,
-  with_solution)` takes a partial `storage.Problem` saved by stage 1,
-  runs a fresh `query()` with the solver system prompt against the
-  partial's text + figure, measures wall-clock duration, and patches
-  `solve_time_seconds` on the updated record when `with_solution=True`.
-- [problem_store.py](problem_store.py) — in-process MCP server with two
-  modes:
-  - `mode="parsed"` exposes `save_parsed_problem`. Each call crops the
-    figure (if any) and inserts a partial via `storage.save_problem`
-    with `category='unclassified'`, `solution=''`. Calls with a
-    `seq_no` already saved for `source_image` are skipped so retries
-    don't duplicate.
-  - `mode="solved"` exposes `save_problem` and `lookup_category_edits`.
-    `save_problem` calls `storage.update_problem(existing_problem_id,
-    ...)` so the partial keeps its ID, seq_no, figure_image, and
-    source metadata. `lookup_category_edits` must run first before
-    `save_problem` will accept, same as before.
+  `classify_pending_problems`, `StageResult`, `NO_CLASSIFY_WORK_SUMMARY`,
+  `build_scan_store`, `build_classify_store`, `UNCLASSIFIED_CATEGORY`).
+- [orchestrator.py](orchestrator.py) — `scan_image` and
+  `classify_pending_problems` plus their `_async` implementations. Sync
+  wrappers each call `asyncio.run` internally — do not call from inside
+  an existing event loop. Owns the batch-classify tunables
+  (`CLASSIFY_BATCH_SIZE`, `CLASSIFY_CONCURRENCY`, `CLASSIFY_MAX_ATTEMPTS`).
+- [classifier.py](classifier.py) — `classify_batch(problem_ids)`: loads
+  each problem fresh from storage, builds one prompt enumerating all of
+  them (tagged with `problem_id`, plus a figure path where present), runs
+  one `query()` against `build_classify_store`, and returns a
+  `StageResult`. Does not raise on quota — it detects the SDK's
+  `RateLimitEvent` mid-stream, stops, and returns whatever was saved so
+  far with `hit_quota_limit=True` (unlike the old per-problem solver,
+  this can't just raise, since a partial batch still has real progress to
+  report back).
+- [problem_store.py](problem_store.py) — in-process MCP servers:
+  - `build_scan_store(source_image, saved)` exposes `save_parsed_problem`
+    and `list_subexams`. Each `save_parsed_problem` call crops the figure
+    (if any) and inserts a partial via `storage.save_problem` with
+    `category='unclassified'`, `solution=''`. Calls with a `seq_no`
+    already saved for `source_image` are skipped so retries don't
+    duplicate.
+  - `build_classify_store(problem_ids, saved)` exposes
+    `save_classification` and `lookup_category_edits` for one batch
+    session. `save_classification` validates `problem_id` is a member of
+    the batch and hasn't already been saved, and requires a preceding
+    `lookup_category_edits` call (tracked via a lookup/save counter, not
+    a single boolean flag, since one session covers many problems).
+- [results.py](results.py) — `StageResult`, the shared return type for
+  both jobs. Kept out of `orchestrator.py` so `classifier.py` can return
+  it without an import cycle (`orchestrator.py` imports `classify_batch`
+  from `classifier.py`).
 
 ## Prompts
 
-- The orchestrator prompt is worker-local at
+- The orchestrator (image-scan) prompt is worker-local at
   [../prompts/orchestrator.md](../prompts/orchestrator.md). Only
-  stage 1 reads it; no other component depends on it.
-- The solver prompt template lives in the shared
-  [../../common/prompts/solver.md](../../common/prompts/solver.md)
-  because the webapp's `refine.md` `{% include %}`s it. `solver.py`
-  loads it via `common.agent_util.PROMPTS_DIR`. Keep them in one place
-  to avoid drift.
+  `scan_image` reads it; no other component depends on it.
+- The classifier prompt template lives in the shared
+  [../../common/prompts/classifier.md](../../common/prompts/classifier.md)
+  (next to `math_category.md`, which it `{% include %}`s) so
+  `classifier.py` can reuse `common.agent_util.PROMPTS_DIR`'s
+  `FileSystemLoader` without a second loader.
+- `solver.md` (also in `common/prompts/`) is no longer read by anything
+  in this package — it's `{% include %}`'d only by `refine.md` for the
+  webapp's ad hoc refine flow.
 
 ## Flow
 
 ```
-Stage 1 — scan_image(image_path, source_image)
+Image scan — scan_image(image_path, source_image)
   └─ orchestrator query (system: worker/prompts/orchestrator.md)
        ├─ Read(image_path)
        └─ mcp__problem_store__save_parsed_problem(...)   # once per problem
             └─ figures.save_figure(...) if bbox non-empty
             └─ storage.save_problem(category='unclassified', solution='')
 
-Stage 2 — solve_pending_problems(source_image, with_solution)
-  └─ storage.problems_by_source_and_category(source_image, 'unclassified')
-  └─ asyncio.gather over partials (bounded by SOLVER_CONCURRENCY):
-       solve_problem(partial, with_solution)
-         └─ inner solver query (system: common/prompts/solver.md)
-              ├─ Read(figure) if partial.figure_image is set
-              ├─ mcp__problem_store__lookup_category_edits(category)
-              └─ mcp__problem_store__save_problem(...)
-                   └─ storage.update_problem(existing_problem_id, ...)
+Batch classify — classify_pending_problems(batch_size, concurrency)
+  └─ storage.classify_tasks.seed_pending()   # backfill any untracked unclassified problems
+  └─ up to `concurrency` calls to storage.classify_tasks.claim_batch(batch_size)
+  └─ asyncio.gather over the claimed batches:
+       classify_batch(problem_ids)
+         └─ one classifier query (system: common/prompts/classifier.md)
+              ├─ Read(figure) per problem that has one
+              ├─ mcp__problem_store__lookup_category_edits(category)   # once per problem
+              └─ mcp__problem_store__save_classification(problem_id, ...)  # once per problem
+                   └─ storage.update_problem(problem_id, category=..., subcategory=...)
+  └─ per problem in each batch: mark_done / revert_to_pending / mark_failed
+     against classify_tasks, based on whether it was saved, whether the
+     batch hit quota, and CLASSIFY_MAX_ATTEMPTS
 ```
-
-Time fields follow this convention: `solve_time_seconds` stores the
-real measured elapsed time (NULL on partials, set when the solver
-finishes); `solve_time_estimated` stores the model's pre-solve estimate
-in integer seconds. When `with_solution=True` the solver patches
-`solve_time_seconds` to the measured elapsed time after the inner query
-returns; when `with_solution=False` the model writes
-`solve_time_estimated` itself via `save_problem`.
 
 ## Conventions
 
-- `ORCHESTRATOR_MAX_TURNS = 4`, `SOLVER_MAX_TURNS = 7`,
-  `SOLVER_CONCURRENCY = 4`. Bump only with a reason — runaway tool
-  loops or rate-limit pressure are the failure modes.
-- Stage 1's allowed tools are exactly
-  `["Read", "mcp__problem_store__save_parsed_problem"]`. The inner
-  solver's are `["mcp__problem_store__save_problem",
+- `ORCHESTRATOR_MAX_TURNS = 20`. Classifier turns scale with batch size
+  (`TURNS_PER_PROBLEM * len(problems)`, floored at `MIN_MAX_TURNS`) since
+  one session now covers many problems — see `classifier.py`.
+- Image scan's allowed tools are exactly `["Read",
+  "mcp__problem_store__list_subexams",
+  "mcp__problem_store__save_parsed_problem"]`. A classify batch's are
+  `["mcp__problem_store__save_classification",
   "mcp__problem_store__lookup_category_edits"]` plus `"Read"` only when
-  the partial has a `figure_image`.
-- `save_problem` schema (stage 2):
-  - `with_solution=True`: `{problem_text, category, subcategory,
-    solution}` — `solve_time_seconds` is filled in afterwards from
-    measured wall-clock.
-  - `with_solution=False`: `{problem_text, category, subcategory,
-    solve_time_estimated}` — Claude's own integer-seconds estimate.
+  at least one problem in the batch has a `figure_image`.
+- `save_classification` schema: `{problem_id, category, subcategory}` —
+  no `problem_text` or `solution`, since the DB already has the text and
+  classification never writes a solution. This is the token savings this
+  package exists for: one system prompt (incl. the whole category
+  taxonomy) shared across a whole batch instead of resent per problem.
 - Every assistant / tool / result message is logged via `log_message`
   for debuggability.
 
 ## Don't
 
-- Don't merge the two stages back into a single `process_image` call.
-  The queue's per-stage retry budget and per-stage quota reversion both
-  rely on the split.
-- Don't move `solver.md` into `worker/prompts/`. It's `{% include %}`'d
-  by `common/prompts/refine.md`, so it must stay reachable by the
-  shared Jinja loader.
+- Don't merge image scan and batch classify back into a single
+  per-file call. The queue's per-job retry budget and per-job quota
+  reversion both rely on the split, and classify being file-independent
+  is the point (see [../../AGENTS.md](../../AGENTS.md) for why).
+- Don't move `classifier.md` out of `common/prompts/` — it needs to sit
+  next to `math_category.md` for the shared Jinja loader's `{% include %}`
+  to resolve.
 - Don't import from `webapp/src/`. Worker agent code may depend only on
   `common.*` and the `claude_agent_sdk` / `PIL` / `pypdfium2` packages.
-- Don't run the solver against a problem whose category is something
-  other than `unclassified` from this entry point — `solve_pending_problems`
-  is the only caller and it filters by that placeholder. If a caller
-  needs to re-classify an already-saved problem, that's the refine flow,
-  not this one.
+- Don't classify a problem whose category is something other than
+  `unclassified` from this entry point — `classify_pending_problems`
+  only ever claims rows seeded from `category='unclassified'` problems.
+  Re-classifying an already-categorized problem is the refine flow, not
+  this one.

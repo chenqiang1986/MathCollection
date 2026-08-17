@@ -41,17 +41,26 @@ and `PG_SCHEMA` (default `math_collection`).
   `sync_all_users()` fans that over every user and is the deploy-time entry
   (`python -m common.db_setup`). Request handling never does a DB sync.
 - [queue.py](queue.py) — per-user raw-file queue used by the offline
-  worker. Five-state lifecycle (`pending_image_scan` →
-  `processing_image_scan` → `pending_problem_solve` →
-  `processing_problem_solve` → `done | failed`). Public ops:
-  `enqueue_raw`, `claim_next_image_scan`, `claim_next_problem_solve`,
-  `advance_to_problem_solve`, `mark_done`, `mark_failed`,
-  `revert_image_scan`, `revert_problem_solve`,
-  `reclaim_stale_processing`, `pending_count`. The `raw_files` table
-  shares the same Postgres database as the index (DDL in
-  [../db_setup/schema.sql](../db_setup/schema.sql)). Both `claim_next_*`
-  helpers use a `SELECT ... FOR UPDATE SKIP LOCKED` subquery so two workers
+  worker's image-scan job only. Three-state lifecycle
+  (`pending_image_scan` → `processing_image_scan` → `done | failed`).
+  Public ops: `enqueue_raw`, `claim_next_image_scan`, `mark_done`,
+  `mark_failed`, `revert_image_scan`, `reclaim_stale_processing`,
+  `pending_count`. The `raw_files` table shares the same Postgres
+  database as the index (DDL in
+  [../db_setup/schema.sql](../db_setup/schema.sql)). `claim_next_image_scan`
+  uses a `SELECT ... FOR UPDATE SKIP LOCKED` subquery so two workers
   polling the same user claim different rows instead of racing.
+- [classify_tasks.py](classify_tasks.py) — per-user classify-task queue,
+  independent of `raw_files`/source file. Tracks a flat backlog of
+  `problems` rows with `category='unclassified'`. Four-state lifecycle
+  (`pending` → `processing` → `done | failed`). Accessed as
+  `storage.classify_tasks.<fn>` (not flat re-exported) since its op names
+  (`mark_done`, `mark_failed`, `retry_failed`, `status_counts`,
+  `list_items`, `reclaim_stale_processing`) collide with `queue.py`'s;
+  only the `ClassifyTask` type and `CLASSIFY_*` status constants are flat
+  re-exported. `seed_pending()` lazily inserts a `pending` row for any
+  unclassified problem missing one (self-heals problems that predate this
+  table); `claim_batch(n)` claims up to `n` rows in one round trip.
 - [category_edits.py](category_edits.py) — append-only log of manual
   category corrections (`record_category_edit`, `category_edit_examples`).
   Lives in the same Postgres database as the index but is **authoritative**,
@@ -97,13 +106,19 @@ non-whitelisted "guest" bucket also lives under `data/guest/` (user_id
   tables are the **exception**: they're authoritative and not rebuildable,
   so don't truncate them casually if a user has edited categories or named
   tags.
-- **The `raw_files` queue table is authoritative.** It tracks per-file
-  status, with_solution, attempts, and errors — none of which can be rebuilt
-  from the filesystem. Deleting a user's rows forces every raw file to
-  re-enqueue on next upload (or it stays unprocessed forever). The `problems`
-  table uses `(source_image, seq_no)` to dedupe at the agent layer, so even
-  if the queue is wiped and a file is reprocessed, already-saved problems are
-  skipped.
+- **The `raw_files` and `classify_tasks` queue tables are authoritative.**
+  They track per-file / per-problem status, attempts, and errors — none of
+  which can be rebuilt from the filesystem. Deleting a user's `raw_files`
+  rows forces every raw file to re-enqueue on next upload (or it stays
+  unprocessed forever). The `problems` table uses `(source_image, seq_no)`
+  to dedupe at the agent layer, so even if the queue is wiped and a file
+  is reprocessed, already-saved problems are skipped. Deleting
+  `classify_tasks` rows is lower-stakes — `seed_pending()` recreates a
+  `pending` row for any problem still `category='unclassified'` the next
+  time the classify job runs. `raw_files.with_solution` is a vestigial
+  column (unused since classification stopped writing solutions
+  automatically — full solves are ad hoc via `/refine`); left in place
+  rather than dropped.
 - **Backfill is per-user and version-gated.** `schema_version` holds the
   latest version this schema declares; `user_data_version` holds, per user,
   the version that user's rows were last backfilled to. When they differ,

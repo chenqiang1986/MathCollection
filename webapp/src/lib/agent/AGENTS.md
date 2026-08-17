@@ -1,7 +1,7 @@
 # Agent package (webapp-side)
 
-Only the **refine** flow lives here. The two-tier orchestrator + solver
-pipeline used by the offline worker is in
+Only the **refine** flow lives here. The image-scan + batch-classify jobs
+used by the offline worker are in
 [../../../../worker/agent/](../../../../worker/agent/). Shared agent
 helpers (`MODEL`, `log_message`, `PROMPTS_DIR`, `MAX_BUFFER_SIZE`) live
 in [../../../../common/agent_util.py](../../../../common/agent_util.py).
@@ -39,14 +39,14 @@ in [../../../../common/agent_util.py](../../../../common/agent_util.py).
   real solve time, patches `solve_time_seconds` to the refine elapsed
   time.
 - Refine uses its own update-only `refine_store`; it intentionally
-  skips the `lookup_category_edits` check that the worker's solver
-  enforces.
+  skips the `lookup_category_edits` check that the worker's batch
+  classifier enforces.
 
 ## Don't
 
 - Don't append model overrides in Python; edit
   [../../../../common/prompts/refine.md](../../../../common/prompts/refine.md) instead.
 - Don't import the Flask layer from here.
-- Don't put the orchestrator/solver code back here — it lives in
+- Don't put the image-scan/classifier code back here — it lives in
   [../../../../worker/agent/](../../../../worker/agent/) so the webapp
   process doesn't load the orchestrator's SDK setup at import time.

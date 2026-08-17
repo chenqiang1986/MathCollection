@@ -22,7 +22,7 @@
     {% endif %}
   </div>
   <h1>Problems Lens AI</h1>
-  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, optionally solved, and saved. Check back in a few minutes.{% if can_upload %} <a href="{{ url_for('pages.queue') }}">Processing queue →</a> · <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
+  <p class="sub">Upload one or more images or PDFs of math problems. They are queued and processed offline by the background worker — extracted, classified, and saved. Check back in a few minutes.{% if can_upload %} <a href="{{ url_for('pages.queue') }}">Processing queue →</a> · <a href="{{ url_for('pages.classify') }}">Classify queue →</a> · <a href="{{ url_for('pages.stats') }}">View stats →</a>{% endif %}</p>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}
@@ -44,10 +44,6 @@
   <form id="upload-form" action="{{ url_for('uploads.upload') }}" method="post" enctype="multipart/form-data">
     <label>Images or PDFs (PNG, JPEG, GIF, WebP, PDF, max 10 MB total):</label><br>
     <input type="file" name="images" accept="image/*,application/pdf,.pdf" multiple required>
-    <label style="display:block; margin-top:0.5rem;">
-      <input type="checkbox" name="with_solution" value="1">
-      Generate step-by-step solution
-    </label>
     <button type="submit" id="process-btn">Queue for processing</button>
     <div id="progress-wrap" aria-live="polite">
       <div class="progress-bar"><div></div></div>

@@ -14,7 +14,15 @@ from common.storage.paths import (
     set_current_user,
     user_dir,
 )
+from common.storage import classify_tasks
 from common.storage.category_edits import category_edit_examples, record_category_edit
+from common.storage.classify_tasks import (
+    CLASSIFY_DONE,
+    CLASSIFY_FAILED,
+    CLASSIFY_PENDING,
+    CLASSIFY_PROCESSING,
+    ClassifyTask,
+)
 from common.storage.problem_io import (
     delete_problem,
     get_problem,
@@ -37,13 +45,9 @@ from common.storage.queue import (
     DONE,
     FAILED,
     PENDING_IMAGE_SCAN,
-    PENDING_PROBLEM_SOLVE,
     PROCESSING_IMAGE_SCAN,
-    PROCESSING_PROBLEM_SOLVE,
     QueueItem,
-    advance_to_problem_solve,
     claim_next_image_scan,
-    claim_next_problem_solve,
     enqueue_raw,
     list_items,
     mark_done,
@@ -52,7 +56,6 @@ from common.storage.queue import (
     reclaim_stale_processing,
     retry_failed,
     revert_image_scan,
-    revert_problem_solve,
     status_counts,
 )
 from common.storage.sql_index import (
@@ -81,26 +84,28 @@ from common.storage.vocab import (
 
 __all__ = [
     "CANONICAL_SOURCE_EXAMS",
+    "CLASSIFY_DONE",
+    "CLASSIFY_FAILED",
+    "CLASSIFY_PENDING",
+    "CLASSIFY_PROCESSING",
+    "ClassifyTask",
     "DATA_DIR",
     "DIFFICULTY_BUCKETS",
     "DONE",
     "FAILED",
     "PENDING_IMAGE_SCAN",
-    "PENDING_PROBLEM_SOLVE",
     "PRACTICE_SET_ORDER_KEYS",
     "PROCESSING_IMAGE_SCAN",
-    "PROCESSING_PROBLEM_SOLVE",
     "Bucket",
     "Problem",
     "QueueItem",
     "REPO_ROOT",
-    "advance_to_problem_solve",
     "add_problem_to_practice_set",
     "canonicalize_source_exam",
     "category_counts",
     "category_edit_examples",
     "claim_next_image_scan",
-    "claim_next_problem_solve",
+    "classify_tasks",
     "current_user_id",
     "delete_problem",
     "delete_practice_set",
@@ -136,7 +141,6 @@ __all__ = [
     "remove_problem_from_practice_set",
     "retry_failed",
     "revert_image_scan",
-    "revert_problem_solve",
     "sample_index",
     "sanitize_email",
     "save_problem",

@@ -37,8 +37,6 @@ def upload():
     raw_dir = storage.raw_uploads_dir()
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    with_solution = bool(request.form.get("with_solution"))
-
     queued = 0
     retried = 0
     already_queued = 0
@@ -65,7 +63,7 @@ def upload():
         saved_path = raw_dir / safe_name
         if not saved_path.exists():
             saved_path.write_bytes(image_bytes)
-        result = storage.enqueue_raw(safe_name, with_solution=with_solution)
+        result = storage.enqueue_raw(safe_name)
         if result == "new":
             queued += 1
         elif result == "retried":

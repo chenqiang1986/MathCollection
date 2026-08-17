@@ -9,20 +9,26 @@ MathCollection is split into two pieces:
 1. A small Flask webapp that accepts image / PDF uploads and saves them
    under `data/<user>/raw/`. It also enqueues each file in a Postgres
    queue (keyed by `user_id`) and shows the saved problems.
-2. An offline Python worker ([worker/](worker/)) that scans the queues
-   across all users, runs the two-tier Claude agent on each pending file
-   (via the `claude-agent-sdk`), and saves the extracted problems. The
-   webapp never invokes the agent on upload.
+2. An offline Python worker ([worker/](worker/)) that drains the per-file
+   scan queue and, independently, sweeps a flat backlog of unclassified
+   problems, via the `claude-agent-sdk`. The webapp never invokes the
+   agent on upload.
 
 Each problem is persisted as one JSON file under
 `data/<user>/problems/`. The browser renders math via KaTeX auto-render.
 
-The agent runs in two layers (see [webapp/src/lib/agent/AGENTS.md](webapp/src/lib/agent/AGENTS.md)):
+The worker runs two independent jobs (see [worker/agent/AGENTS.md](worker/agent/AGENTS.md)):
 
-1. **Orchestrator** reads the source image, identifies each distinct problem,
-   and dispatches each one to `solve_and_save`.
-2. **Solver** runs in a fresh agent context per problem, classifies, optionally
-   solves it, optionally reads a cropped figure, then calls `save_problem`.
+1. **Image scan** (`scan_image`, per file, tracked in `raw_files`) reads
+   the source image, identifies each distinct problem, and saves it as a
+   partial record (`category='unclassified'`).
+2. **Batch classify** (`classify_pending_problems`, over a flat backlog of
+   unclassified problems, tracked in `classify_tasks`) picks category and
+   subcategory for a batch of problems in one agent session and calls
+   `save_classification` once per problem. Full re-solving (with a
+   written-out solution) is ad hoc only, via
+   `POST /problems/<id>/refine` — see
+   [webapp/src/lib/agent/AGENTS.md](webapp/src/lib/agent/AGENTS.md).
 
 ## Layout
 
@@ -34,8 +40,8 @@ depends on the other.
 **Shared library:**
 
 - [common/storage/](common/storage/) — JSON-on-disk problem store,
-  Postgres metadata index, raw-file queue, per-user paths, stats
-  aggregations. The Postgres connection pool lives in
+  Postgres metadata index, raw-file queue, classify-task queue, per-user
+  paths, stats aggregations. The Postgres connection pool lives in
   [common/storage/db.py](common/storage/db.py). See
   [common/storage/AGENTS.md](common/storage/AGENTS.md).
 - [common/db_setup/](common/db_setup/) — `schema.sql` (single Postgres
@@ -50,8 +56,8 @@ depends on the other.
   the webapp's `lib.agent.refine`.
 - [common/figures.py](common/figures.py) — crops normalized bboxes out
   of source images / PDF pages into per-user `figures/`.
-- [common/prompts/](common/prompts/) — shared prompts
-  (`solver.md`, `math_category.md`, `refine.md`). The worker-only
+- [common/prompts/](common/prompts/) — shared prompts (`solver.md`,
+  `classifier.md`, `math_category.md`, `refine.md`). The worker-only
   `orchestrator.md` lives in [worker/prompts/](worker/prompts/).
   See [common/prompts/AGENTS.md](common/prompts/AGENTS.md).
 
@@ -68,11 +74,11 @@ depends on the other.
 
 **Worker (offline agent runner):**
 
-- [worker/](worker/) — daemon that drains the per-user raw-file queues
-  by running the agent on each pending file. Contains its own
-  [worker/agent/](worker/agent/) package (orchestrator + solver) and
-  [worker/prompts/](worker/prompts/) (orchestrator.md). See
-  [worker/AGENTS.md](worker/AGENTS.md).
+- [worker/](worker/) — daemon that drains the per-user raw-file scan
+  queue and, independently, the flat classify-task backlog. Contains its
+  own [worker/agent/](worker/agent/) package (orchestrator + classifier +
+  in-process MCP store) and [worker/prompts/](worker/prompts/)
+  (orchestrator.md). See [worker/AGENTS.md](worker/AGENTS.md).
 
 **Data layout** (per user; created by `init_user()`):
 
@@ -80,12 +86,13 @@ depends on the other.
 - `data/<user>/figures/<uuid>.png` — cropped figures referenced by problems.
 - `data/<user>/raw/<sha256>.<ext>` — raw uploaded images / PDFs.
 
-The problem index, raw-file queue, tags, and category-edit log now live in
-a single Postgres database (schema `math_collection`), with every row
-carrying a `user_id` column rather than a per-user database file. Connect
-via `DATABASE_URL` (see [.env.example](.env.example)). The `problems` and
-`problem_tags` tables are derived from the JSON and rebuild on backfill;
-`tags`, `category_edits`, and `raw_files` are authoritative.
+The problem index, raw-file queue, classify-task queue, tags, and
+category-edit log now live in a single Postgres database (schema
+`math_collection`), with every row carrying a `user_id` column rather
+than a per-user database file. Connect via `DATABASE_URL` (see
+[.env.example](.env.example)). The `problems` and `problem_tags` tables
+are derived from the JSON and rebuild on backfill; `tags`,
+`category_edits`, `raw_files`, and `classify_tasks` are authoritative.
 
 - [webapp/requirements.txt](webapp/requirements.txt), [.env.example](.env.example).
 
@@ -132,24 +139,26 @@ There are no tests, linters, or CI configured.
 
 - **Model**: `claude-sonnet-4-6` (see `MODEL` in
   [common/agent_util.py](common/agent_util.py)). Don't silently swap models.
-- **Two-tier agent**: the orchestrator only dispatches; it must never call
-  `save_problem` directly. The solver MUST call
-  `mcp__problem_store__save_problem` exactly once per invocation. The tool
-  schema is shaped at runtime by `with_solution` (see
-  [worker/agent/problem_store.py](worker/agent/problem_store.py)).
+- **Batch classify, one save per problem**: the orchestrator's image-scan
+  session only extracts; it must never call `save_classification`. One
+  batch-classify session covers many problems (see
+  [worker/agent/classifier.py](worker/agent/classifier.py)) and MUST call
+  `mcp__problem_store__save_classification` exactly once per `problem_id`
+  it was given — the tool validates `problem_id` membership in the batch
+  (see [worker/agent/problem_store.py](worker/agent/problem_store.py)).
 - **Prompts**: shared templates live in [common/prompts/](common/prompts/)
-  (solver, math_category, refine); orchestrator-only prompt in
+  (solver — used only by the ad hoc refine flow now, classifier,
+  math_category, refine); orchestrator-only prompt in
   [worker/prompts/](worker/prompts/). Don't splice override instructions
-  in Python — `solver.md` is a Jinja2 template rendered with
-  `with_solution`.
+  in Python.
 - **Dependency direction**: `common/` is the only package allowed to be
   imported by both `webapp/` and `worker/`. The webapp must never
   import from `worker/`, and the worker must never import from
   `webapp/src/`. Anything that needs to be shared moves into `common/`.
-- **Difficulty**: unified as `solve_time_seconds` (float seconds) plus a
-  `solve_time_estimated: bool` flag. With `with_solution=True`, the value
-  is the measured wall-clock duration of the inner solver (estimated=False);
-  with `with_solution=False`, Claude estimates it (estimated=True).
+- **Difficulty**: `solve_time_seconds` (float seconds, real measured solve
+  time) plus a `solve_time_estimated: bool` flag. Only set by the ad hoc
+  `/refine` flow (which writes a real solution and measures elapsed time);
+  the automated batch-classify pipeline never touches it.
 - **Math delimiters**: `problem_text` and `solution` must use `$...$` /
   `$$...$$` so KaTeX renders. Don't switch delimiters without updating
   [webapp/src/templates/index.html](webapp/src/templates/index.html) and
@@ -183,17 +192,18 @@ There are no tests, linters, or CI configured.
 
 ## Things to watch
 
-- `agent.scan_image` and `agent.solve_pending_problems` each call
+- `agent.scan_image` and `agent.classify_pending_problems` each call
   `asyncio.run`, so they can't be invoked from inside an existing event
   loop. The worker is fully synchronous; don't wrap it in one.
 - Uploads succeed silently from the user's perspective until the worker
   catches up. If the worker isn't running, new files pile up in the
-  `raw_files` table as `pending_image_scan` rows and no problems appear. A
-  worker can also get stuck between stages: rows can sit in
-  `pending_problem_solve` if the solver is failing. Check
-  `pending_count()` (covers both pending states), `storage.status_counts()`,
-  or `select status, count(*) from raw_files where user_id = '<user>' group
-  by status` if uploads "stop working".
+  `raw_files` table as `pending_image_scan` rows and no problems appear.
+  Once scanned, problems can also sit `unclassified` if the classify job
+  is failing — check `storage.status_counts()` (file scan) and
+  `storage.classify_tasks.status_counts()` (classification), or query
+  `raw_files` / `classify_tasks` directly by `user_id` and `status`, if
+  things "stop working". The webapp's `/queue` and `/classify` pages
+  surface both.
 - `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
   `DATABASE_URL` must be in the environment (loaded via `python-dotenv`)
   before the app starts. Postgres must be reachable at `DATABASE_URL`; the

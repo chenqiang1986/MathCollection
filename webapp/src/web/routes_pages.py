@@ -31,3 +31,9 @@ def stats():
 @login_required
 def queue():
     return render_template("queue.html")
+
+
+@bp.route("/classify", methods=["GET"])
+@login_required
+def classify():
+    return render_template("classify.html")

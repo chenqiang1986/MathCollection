@@ -1,33 +1,24 @@
 const URL_PREFIX = document.body.dataset.urlPrefix || "";
 
 const STATUS_LABELS = {
-  processing_image_scan: "Scanning",
-  pending_image_scan: "Pending scan",
+  processing: "Classifying",
+  pending: "Pending",
   failed: "Failed",
   done: "Done",
 };
 
-const STATUS_ORDER = [
-  "processing_image_scan",
-  "pending_image_scan",
-  "failed",
-  "done",
-];
-
-const PROCESSING_STATUSES = new Set(["processing_image_scan"]);
+const STATUS_ORDER = ["processing", "pending", "failed", "done"];
 
 const SECTION_LIMITS = {
-  processing_image_scan: 50,
-  pending_image_scan: 200,
+  processing: 50,
+  pending: 200,
   failed: 50,
   done: 50,
 };
 
-// Map each status to the CSS pill class it should inherit from the
-// original four-state styles (processing/pending/failed/done).
 const STATUS_PILL_CLASS = {
-  processing_image_scan: "processing",
-  pending_image_scan: "pending",
+  processing: "processing",
+  pending: "pending",
   failed: "failed",
   done: "done",
 };
@@ -59,17 +50,19 @@ function renderSection(status, items) {
     wrap.innerHTML = `<p class="queue-empty">None.</p>`;
     return;
   }
-  const showStarted = PROCESSING_STATUSES.has(status);
+  const showStarted = status === "processing";
   const showFinished = status === "done" || status === "failed";
+  const showCategory = status === "done";
   const showError = status === "failed";
   const showRetry = status === "failed";
   const header = `
     <tr>
-      <th>File</th>
+      <th>Problem</th>
       <th>Queued</th>
       ${showStarted ? "<th>Started</th>" : ""}
       ${showFinished ? "<th>Finished</th>" : ""}
       <th>Attempts</th>
+      ${showCategory ? "<th>Category</th>" : ""}
       ${showError ? "<th>Error</th>" : ""}
       ${showRetry ? "<th></th>" : ""}
     </tr>`;
@@ -79,19 +72,21 @@ function renderSection(status, items) {
         ? `<div class="err">${escapeHtml(it.last_error)}</div>`
         : "";
       const retryCell = showRetry
-        ? `<td><button type="button" class="retry-btn" data-filename="${escapeHtml(
-            it.filename,
+        ? `<td><button type="button" class="retry-btn" data-problem-id="${escapeHtml(
+            it.problem_id,
           )}">Retry</button></td>`
         : "";
+      const cat = [it.category, it.subcategory].filter(Boolean).join(" / ");
       return `
         <tr>
-          <td class="file">${escapeHtml(it.filename)}${
+          <td class="snippet">${escapeHtml(it.problem_text)}${
         !showError && it.last_error ? err : ""
       }</td>
           <td>${fmtTime(it.queued_at)}</td>
           ${showStarted ? `<td>${fmtTime(it.started_at)}</td>` : ""}
           ${showFinished ? `<td>${fmtTime(it.finished_at)}</td>` : ""}
           <td>${it.attempts}</td>
+          ${showCategory ? `<td class="cat">${escapeHtml(cat)}</td>` : ""}
           ${showError ? `<td>${err || ""}</td>` : ""}
           ${retryCell}
         </tr>`;
@@ -100,17 +95,17 @@ function renderSection(status, items) {
   wrap.innerHTML = `<table class="queue-table"><thead>${header}</thead><tbody>${body}</tbody></table>`;
 }
 
-async function retryFailed(filename, button) {
-  if (!filename) return;
+async function retryFailed(problemId, button) {
+  if (!problemId) return;
   button.disabled = true;
   const original = button.textContent;
   button.textContent = "Retrying…";
   try {
-    const resp = await fetch(`${URL_PREFIX}/api/queue/retry`, {
+    const resp = await fetch(`${URL_PREFIX}/api/classify/retry`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename }),
+      body: JSON.stringify({ problem_id: problemId }),
     });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
@@ -136,7 +131,7 @@ function escapeHtml(s) {
 
 async function refresh() {
   try {
-    const resp = await fetch(`${URL_PREFIX}/api/queue`, { credentials: "same-origin" });
+    const resp = await fetch(`${URL_PREFIX}/api/classify`, { credentials: "same-origin" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     renderSummary(data.counts || {});
@@ -165,7 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("failed-wrap").addEventListener("click", (e) => {
     const btn = e.target.closest(".retry-btn");
     if (!btn) return;
-    retryFailed(btn.dataset.filename, btn);
+    retryFailed(btn.dataset.problemId, btn);
   });
   refresh();
   scheduleAuto();

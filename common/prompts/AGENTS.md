@@ -1,40 +1,41 @@
 # Prompts (shared)
 
-System prompts shared by the webapp's `refine` agent, the worker's
-solver, and `backfill/classify`. **Edit these instead of splicing
-override strings in Python.**
+System prompts shared across the webapp's `refine` agent, the worker's
+batch classifier, and `backfill/classify`. **Edit these instead of
+splicing override strings in Python.**
 
-The orchestrator's prompt is worker-only and lives in
+The orchestrator's (image-scan) prompt is worker-only and lives in
 [../../worker/prompts/orchestrator.md](../../worker/prompts/orchestrator.md);
 it is not loaded by anything in this directory.
 
 ## Files
 
 - [math_category.md](math_category.md) — closed list of allowed
-  `(category, subcategory)` pairs. Included into `solver.md` so the solver
-  picks from a fixed vocabulary instead of inventing synonyms. Also read
-  directly by [../../backfill/classify.py](../../backfill/classify.py).
-  Edit this file (not `solver.md`) to add/rename categories.
-- [solver.md](solver.md) — Jinja2 template rendered with one variable,
-  `with_solution: bool` (see
-  [../../worker/agent/solver.py](../../worker/agent/solver.py)).
-  Loaded via `FileSystemLoader(PROMPTS_DIR)` so `{% include %}` resolves
-  sibling files — currently includes [math_category.md](math_category.md).
-  Also `{% include %}`'d by [refine.md](refine.md), which is why it must
-  stay in this shared directory rather than moving under `worker/`.
-  The two `with_solution` branches must stay aligned with the corresponding
-  `save_problem` tool schema in
-  [../../worker/agent/problem_store.py](../../worker/agent/problem_store.py):
-  - `with_solution=True` → solver writes a `solution`; tool takes
-    `{problem_text, category, solution}`.
-  - `with_solution=False` → solver estimates `solve_time_estimated`
-    (integer seconds); tool takes
-    `{problem_text, category, solve_time_estimated}`. Real
-    `solve_time_seconds` stays NULL until a later refine produces a
-    solution.
-  Both branches must also instruct the solver to call
-  `lookup_category_edits` before `save_problem` — the save tool refuses the
-  first call until the lookup has been invoked.
+  `(category, subcategory)` pairs. `{% include %}`'d by both
+  [classifier.md](classifier.md) and [solver.md](solver.md) so every
+  entry point picks from a fixed vocabulary instead of inventing
+  synonyms. Also read directly by
+  [../../backfill/classify.py](../../backfill/classify.py). Edit this
+  file (not `classifier.md`/`solver.md`) to add/rename categories.
+- [classifier.md](classifier.md) — Jinja2 template for the worker's
+  batch classifier (see
+  [../../worker/agent/classifier.py](../../worker/agent/classifier.py)).
+  One session covers a *batch* of problems, each tagged with an explicit
+  `problem_id` in the user prompt. Must instruct the model to call
+  `lookup_category_edits` once per problem before `save_classification`
+  for that problem, and to call `save_classification` exactly once per
+  `problem_id` given — never skipped, never invented — matching the
+  membership/ordering checks in
+  [../../worker/agent/problem_store.py](../../worker/agent/problem_store.py)'s
+  `build_classify_store`.
+- [solver.md](solver.md) — Jinja2 template rendered with
+  `with_solution=True`, used only by the webapp's ad hoc refine flow now
+  (see [refine.md](refine.md) below and
+  [../../webapp/src/lib/agent/refine.py](../../webapp/src/lib/agent/refine.py)).
+  The automated pipeline no longer calls it — full re-solving only
+  happens on demand via `POST /problems/<id>/refine`. Kept in this shared
+  directory (not moved under `webapp/`) because it's still
+  `{% include %}`'d by [refine.md](refine.md).
 - [refine.md](refine.md) — Jinja2 template for the webapp's refine
   agent (see
   [../../webapp/src/lib/agent/refine.py](../../webapp/src/lib/agent/refine.py)).
@@ -46,11 +47,13 @@ it is not loaded by anything in this directory.
   renders KaTeX with exactly those delimiters. A literal USD dollar sign
   must be escaped as `\$`, otherwise the renderer will treat it as the
   opening of a math span.
-- **The orchestrator must delegate**, not solve. The solver must call its
-  `save_problem` tool **exactly once**. If you loosen either rule in the
-  prompt, the agent loop and post-processing in
-  [../../worker/agent/solver.py](../../worker/agent/solver.py) (which
-  asserts `len(saved) == 1`) will break.
+- **Image scan must delegate**, not classify or solve — that's
+  `save_parsed_problem` only, in
+  [../../worker/prompts/orchestrator.md](../../worker/prompts/orchestrator.md).
+  **The batch classifier must call `save_classification` once per problem
+  in its batch**, no more, no fewer — `worker/agent/classifier.py` treats
+  a batch as incomplete (and reverts/retries the unsaved problems) if the
+  count doesn't match.
 - **Figure bbox/rotation contract** is defined in the orchestrator
   prompt at
   [../../worker/prompts/orchestrator.md](../../worker/prompts/orchestrator.md):
@@ -61,10 +64,12 @@ it is not loaded by anything in this directory.
 
 ## Don't
 
-- Don't paste prompt overrides into Python. If a rule is conditional on
-  `with_solution`, express it with Jinja2 in `solver.md`.
+- Don't paste prompt overrides into Python. If a rule needs to vary, use
+  Jinja2 in the template.
 - Don't change the tool names referenced in these prompts
-  (`mcp__orchestrator__report_problems`,
-  `mcp__problem_store__save_problem`,
+  (`mcp__problem_store__save_parsed_problem`,
+  `mcp__problem_store__list_subexams`,
+  `mcp__problem_store__save_classification`,
   `mcp__problem_store__lookup_category_edits`) without updating the MCP
-  servers.
+  servers in
+  [../../worker/agent/problem_store.py](../../worker/agent/problem_store.py).

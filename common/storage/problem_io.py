@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+from common.storage import classify_tasks
 from common.storage.db import connect
 from common.storage.paths import current_user_id, figures_dir, problems_dir
 from common.storage.sql_index import _upsert_index_row
@@ -101,6 +102,7 @@ def delete_problem(problem_id: str) -> bool:
             "DELETE FROM practice_set_problems WHERE user_id = %s AND problem_id = %s",
             (user, problem_id),
         )
+    classify_tasks.delete(problem_id)
     return problem is not None or deleted_rows > 0
 
 
