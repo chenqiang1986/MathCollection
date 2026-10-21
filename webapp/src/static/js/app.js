@@ -280,7 +280,8 @@
     const examText = p.source_exam && p.source_exam !== "Unknown" ? p.source_exam : "";
     const subexamText = (p.subexam || "").trim();
     const yearText = p.year && p.year !== "Unknown" ? p.year : "";
-    const sourceLabel = [yearText, examText, subexamText].filter(Boolean).join(" · ");
+    const seqNoText = p.seq_no === null || p.seq_no === undefined ? "" : String(p.seq_no);
+    const sourceLabel = [yearText, examText, subexamText, seqNoText].filter(Boolean).join(" · ");
     const sourceSpan = sourceLabel ? `<span class="source">${escapeHtml(sourceLabel)}</span>` : "";
     const rawLinkSpan = p.source_image
       ? `<span class="raw-link"><a href="${URL_PREFIX}/raw/${encodeURIComponent(p.source_image)}" target="_blank" rel="noopener">raw${p.source_page ? ` p${p.source_page}` : ""}</a></span>`
