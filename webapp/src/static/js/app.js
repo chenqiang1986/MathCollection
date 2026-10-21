@@ -50,6 +50,11 @@
   const sliderEl = document.querySelector(".range-slider");
   const fillEl = sliderEl ? sliderEl.querySelector(".range-fill") : null;
   const displayEl = document.getElementById("filter-time-display");
+  const seqNoMinInput = document.getElementById("filter-seq-no-min");
+  const seqNoMaxInput = document.getElementById("filter-seq-no-max");
+  const seqNoSliderEl = document.getElementById("seq-no-slider");
+  const seqNoFillEl = seqNoSliderEl ? seqNoSliderEl.querySelector(".range-fill") : null;
+  const seqNoDisplayEl = document.getElementById("filter-seq-no-display");
   const countEl = document.getElementById("filter-count");
   const totalCountEl = document.getElementById("total-count");
   const listEl = document.getElementById("problem-list");
@@ -77,6 +82,7 @@
   const PRACTICE_CREATE_DEFAULT_ORDER_BY = ["random"];
 
   let sliderMax = 60;
+  let seqNoSliderMax = 1;
   let currentPage = 1;
   let lastTotal = 0;
   let knownCategories = [];
@@ -797,6 +803,13 @@
     return lo > 0 || hi < sliderMax;
   }
 
+  function seqNoRangeActive() {
+    if (!seqNoMinInput || !seqNoMaxInput) return false;
+    const lo = parseFloat(seqNoMinInput.value);
+    const hi = parseFloat(seqNoMaxInput.value);
+    return lo > 0 || hi < seqNoSliderMax;
+  }
+
   function currentFilterParams() {
     const params = new URLSearchParams();
     catFilter.appendParams(params);
@@ -807,6 +820,9 @@
     if (minInput) params.set("min_time", minInput.value);
     if (maxInput) params.set("max_time", maxInput.value);
     params.set("range_max", String(sliderMax));
+    if (seqNoMinInput) params.set("min_seq_no", seqNoMinInput.value);
+    if (seqNoMaxInput) params.set("max_seq_no", seqNoMaxInput.value);
+    params.set("seq_no_range_max", String(seqNoSliderMax));
     return params;
   }
 
@@ -1196,6 +1212,26 @@
     }
   }
 
+  function syncSeqNoSlider() {
+    if (!seqNoMinInput || !seqNoMaxInput) return;
+    let lo = parseFloat(seqNoMinInput.value);
+    let hi = parseFloat(seqNoMaxInput.value);
+    if (lo > hi) {
+      if (document.activeElement === seqNoMinInput) {
+        hi = lo; seqNoMaxInput.value = String(hi);
+      } else {
+        lo = hi; seqNoMinInput.value = String(lo);
+      }
+    }
+    if (seqNoFillEl && seqNoSliderMax > 0) {
+      seqNoFillEl.style.left = (lo / seqNoSliderMax * 100) + "%";
+      seqNoFillEl.style.right = (100 - hi / seqNoSliderMax * 100) + "%";
+    }
+    if (seqNoDisplayEl) {
+      seqNoDisplayEl.textContent = `${lo} – ${hi}`;
+    }
+  }
+
   function updatePaginationUI(total) {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     if (currentPage > totalPages) currentPage = totalPages;
@@ -1215,7 +1251,8 @@
       yearFilter.isActive() ||
       figureFilter.isActive() ||
       tagMenuFilter.isActive() ||
-      rangeActive();
+      rangeActive() ||
+      seqNoRangeActive();
     countEl.textContent = active ? `Matching: ${total}` : "";
   }
 
@@ -1916,6 +1953,11 @@
     onFilterChange();
   }
 
+  function onSeqNoSliderInput() {
+    syncSeqNoSlider();
+    onFilterChange();
+  }
+
   async function loadSummary() {
     let summary;
     try {
@@ -1946,6 +1988,16 @@
       maxInput.max = String(sliderMax);
       maxInput.value = String(sliderMax);
     }
+    seqNoSliderMax = summary.max_seq_no || 1;
+    if (seqNoSliderEl) seqNoSliderEl.dataset.max = String(seqNoSliderMax);
+    if (seqNoMinInput) {
+      seqNoMinInput.max = String(seqNoSliderMax);
+      seqNoMinInput.value = "0";
+    }
+    if (seqNoMaxInput) {
+      seqNoMaxInput.max = String(seqNoSliderMax);
+      seqNoMaxInput.value = String(seqNoSliderMax);
+    }
 
     examList = (summary.exams || []).slice();
     subexamMap = summary.subexams || {};
@@ -1965,6 +2017,7 @@
     filtersEl.hidden = false;
     if (practiceBar) practiceBar.hidden = false;
     syncSlider();
+    syncSeqNoSlider();
   }
 
   if (filtersToggle) {
@@ -1979,6 +2032,8 @@
   // catFilter / examFilter / yearFilter / figureFilter / tagMenuFilter.
   if (minInput) minInput.addEventListener("input", onSliderInput);
   if (maxInput) maxInput.addEventListener("input", onSliderInput);
+  if (seqNoMinInput) seqNoMinInput.addEventListener("input", onSeqNoSliderInput);
+  if (seqNoMaxInput) seqNoMaxInput.addEventListener("input", onSeqNoSliderInput);
 
   pagePrev.addEventListener("click", () => {
     if (currentPage > 1) {

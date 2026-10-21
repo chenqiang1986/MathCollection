@@ -25,6 +25,16 @@ def _parse_float(name: str) -> float | None:
         return None
 
 
+def _parse_int(name: str) -> int | None:
+    raw = request.args.get(name)
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def _parse_tags() -> list[str] | None:
     """Tag filter from repeated `tags=` params (also tolerating comma-joined
     values). Normalized + deduped; None when empty so it's treated as no filter."""
@@ -85,6 +95,9 @@ def _parse_filters() -> dict:
         "min_time": _parse_float("min_time"),
         "max_time": _parse_float("max_time"),
         "full_range_max": _parse_float("range_max"),
+        "min_seq_no": _parse_int("min_seq_no"),
+        "max_seq_no": _parse_int("max_seq_no"),
+        "seq_no_range_max": _parse_int("seq_no_range_max"),
         "years": _parse_values("year"),
         "figures": _parse_figures(),
         "tags": _parse_tags(),

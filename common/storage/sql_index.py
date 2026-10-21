@@ -133,6 +133,9 @@ def _build_where(
     min_time: float | None,
     max_time: float | None,
     full_range_max: float | None = None,
+    min_seq_no: int | None = None,
+    max_seq_no: int | None = None,
+    seq_no_range_max: int | None = None,
     years: list[str] | None = None,
     figures: list[int] | None = None,
     tags: list[str] | None = None,
@@ -140,13 +143,14 @@ def _build_where(
     exam_subexam: list[tuple[str, str]] | None = None,
 ) -> tuple[str, list]:
     """Build a WHERE clause (always scoped to the active user). If
-    min_time/max_time covers the full slider range, do not exclude rows with
-    NULL solve_time_seconds. Multiple tags match with OR semantics (a problem
-    qualifies if it carries any of them). cat_subcat / exam_subexam are lists of
-    (category, subcategory) / (source_exam, subexam) pairs, each matched with OR
-    semantics; an empty second element matches the whole category / exam. tags,
-    years, and figures (each 1=has figure, 0=no figure) likewise match any of
-    the supplied values (OR)."""
+    min_time/max_time or min_seq_no/max_seq_no covers its full slider range,
+    do not exclude rows with NULL values for that field. Multiple tags match
+    with OR semantics (a problem qualifies if it carries any of them).
+    cat_subcat / exam_subexam are lists of (category, subcategory) /
+    (source_exam, subexam) pairs, each matched with OR semantics; an empty
+    second element matches the whole category / exam. tags, years, and figures
+    (each 1=has figure, 0=no figure) likewise match any of the supplied values
+    (OR)."""
     where: list[str] = ["user_id = %s"]
     params: list = [current_user_id()]
     if cat_subcat:
@@ -199,6 +203,20 @@ def _build_where(
         if max_time is not None:
             where.append("solve_time_seconds IS NOT NULL AND solve_time_seconds <= %s")
             params.append(max_time)
+    seq_no_range_active = False
+    if min_seq_no is not None and (seq_no_range_max is None or min_seq_no > 0):
+        seq_no_range_active = True
+    if max_seq_no is not None and (
+        seq_no_range_max is None or max_seq_no < seq_no_range_max
+    ):
+        seq_no_range_active = True
+    if seq_no_range_active:
+        if min_seq_no is not None:
+            where.append("seq_no IS NOT NULL AND seq_no >= %s")
+            params.append(min_seq_no)
+        if max_seq_no is not None:
+            where.append("seq_no IS NOT NULL AND seq_no <= %s")
+            params.append(max_seq_no)
     return " WHERE " + " AND ".join(where), params
 
 
@@ -245,6 +263,9 @@ def query_index(
     page: int = 1,
     page_size: int = 5,
     full_range_max: float | None = None,
+    min_seq_no: int | None = None,
+    max_seq_no: int | None = None,
+    seq_no_range_max: int | None = None,
     years: list[str] | None = None,
     figures: list[int] | None = None,
     tags: list[str] | None = None,
@@ -253,6 +274,7 @@ def query_index(
 ) -> tuple[int, list[str]]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
+        min_seq_no, max_seq_no, seq_no_range_max,
         years, figures, tags, cat_subcat, exam_subexam,
     )
     page = max(1, int(page))
@@ -276,6 +298,9 @@ def sample_index(
     min_time: float | None = None,
     max_time: float | None = None,
     full_range_max: float | None = None,
+    min_seq_no: int | None = None,
+    max_seq_no: int | None = None,
+    seq_no_range_max: int | None = None,
     years: list[str] | None = None,
     figures: list[int] | None = None,
     tags: list[str] | None = None,
@@ -286,6 +311,7 @@ def sample_index(
 ) -> list[str]:
     where_clause, params = _build_where(
         min_time, max_time, full_range_max,
+        min_seq_no, max_seq_no, seq_no_range_max,
         years, figures, tags, cat_subcat, exam_subexam,
     )
     if exclude_problem_ids:

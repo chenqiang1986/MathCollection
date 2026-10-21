@@ -85,6 +85,10 @@ def index_summary() -> dict:
             "SELECT MAX(solve_time_seconds) AS m FROM problems WHERE user_id = %s",
             (user,),
         ).fetchone()["m"]
+        max_seq_no = conn.execute(
+            "SELECT MAX(seq_no) AS m FROM problems WHERE user_id = %s",
+            (user,),
+        ).fetchone()["m"]
         total = conn.execute(
             "SELECT COUNT(*) AS n FROM problems WHERE user_id = %s", (user,)
         ).fetchone()["n"]
@@ -107,6 +111,7 @@ def index_summary() -> dict:
             subs.append(sub)
     categories = list(cat_map.keys())
     slider_max = 60 if max_time is None else max(1, int(math.ceil(max_time)))
+    seq_no_slider_max = 1 if max_seq_no is None else max(1, int(max_seq_no))
     # Build distinct exam list + per-exam subexam map (preserves SQL order).
     exam_map: dict[str, list[str]] = {}
     for r in exam_rows:
@@ -123,6 +128,7 @@ def index_summary() -> dict:
         "categories": categories,
         "subcategories": cat_map,
         "max_time": slider_max,
+        "max_seq_no": seq_no_slider_max,
         "total": total,
         "exams": exams,
         "subexams": exam_map,
